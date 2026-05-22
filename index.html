@@ -1,0 +1,3235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Journey to the Center of Hawkthorne</title>
+<style>
+  html, body { margin:0; padding:0; background:#000; overflow:hidden; height:100%; font-family:monospace; color:#fff; }
+  body { display:flex; align-items:center; justify-content:center; }
+  #wrap { position:relative; }
+  canvas { image-rendering:pixelated; image-rendering:crisp-edges; display:block; background:#000; box-shadow:0 0 40px #000; }
+  #hint { position:absolute; bottom:-26px; left:0; right:0; text-align:center; color:#666; font-size:11px; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="game" width="320" height="240"></canvas>
+  <div id="hint">← → move &nbsp;•&nbsp; SPACE jump &nbsp;•&nbsp; Z attack / talk &nbsp;•&nbsp; Q potion &nbsp;•&nbsp; E summon Abed &nbsp;•&nbsp; I inventory &nbsp;•&nbsp; M mute</div>
+</div>
+<script>
+"use strict";
+
+window.addEventListener('error', (e)=>{
+  try {
+    const c=document.getElementById('game'), x=c.getContext('2d');
+    x.fillStyle='#000'; x.fillRect(0,0,320,240);
+    x.fillStyle='#f44'; x.font='10px monospace'; x.textBaseline='top';
+    x.fillText('ERROR:', 8, 8);
+    const msg=(e.message||String(e.error||'')).substring(0,400);
+    let line='',y=22; for (const w of msg.split(' ')){
+      if((line+' '+w).length>38){x.fillText(line,8,y);y+=12;line=w;} else line=(line+' '+w).trim();
+    }
+    if(line) x.fillText(line,8,y);
+    if(e.lineno) x.fillText('line '+e.lineno,8,y+14);
+  } catch(_){}
+});
+
+// ============================================================================
+// JOURNEY TO THE CENTER OF HAWKTHORNE
+// A platform-adventure faithfully adapting Community S3E20 "Digital Estate Planning"
+// Quest: reach the throne of Castle Hawkthorne and claim the Hawthorne inheritance.
+// ============================================================================
+
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+ctx.imageSmoothingEnabled = false;
+function fit(){
+  const s = Math.max(1, Math.min(Math.floor(window.innerWidth/320), Math.floor((window.innerHeight-40)/240)));
+  canvas.style.width=(320*s)+'px'; canvas.style.height=(240*s)+'px';
+}
+window.addEventListener('resize', fit); fit();
+
+const W=320, H=240, TS=16;
+
+// -------- Palette --------
+const P = {
+  black:'#0a0a0a', white:'#fafafa',
+  gray:'#7c7c7c', dgray:'#3c3c3c', lgray:'#cdcdcd',
+  red:'#e22', dred:'#822', orange:'#f72', yellow:'#fc4',
+  dyellow:'#a80', green:'#4c4', dgreen:'#062', lgreen:'#9e4', mgreen:'#2a4',
+  blue:'#26d', lblue:'#7af', dblue:'#114', navy:'#226', sky:'#7cf',
+  purple:'#80c', dpurple:'#406', pink:'#fac',
+  brown:'#852', dbrown:'#421', tan:'#c95',
+  skin:'#fdb', dskin:'#d96',
+  hairh:'#a63', hairb:'#fd8', hairg:'#211',
+  tunic:'#3a6', tunicd:'#173', cloth:'#963',
+  crystal:'#cef', crystald:'#7bd',
+  evil:'#a0e', evildk:'#506',
+  glitch1:'#f0f', glitch2:'#0ff', glitch3:'#f50', glitch4:'#5f0',
+  stone:'#888', stonedk:'#555',
+  cave:'#322', cavedk:'#1a1010',
+  gold:'#fd4', golddk:'#b80',
+};
+
+function S(legend, art){
+  return { legend, rows: art.trim().split('\n').map(r=>r.replace(/^\s+/,'')) };
+}
+function drawSprite(spr, x, y, flip=false, tint=null, alpha=1){
+  const old = ctx.globalAlpha; ctx.globalAlpha = alpha;
+  for (let ry=0; ry<spr.rows.length; ry++){
+    const r = spr.rows[ry];
+    for (let rx=0; rx<r.length; rx++){
+      const c = r[rx];
+      if (c==='.'||c===' ') continue;
+      const col = tint || P[spr.legend[c]] || c;
+      ctx.fillStyle = col;
+      const px = flip ? x+(r.length-1-rx) : x+rx;
+      ctx.fillRect(px, y+ry, 1, 1);
+    }
+  }
+  ctx.globalAlpha = old;
+}
+
+// ============================================================================
+// SPRITES
+// ============================================================================
+// Hero - classic green-tunic adventurer w/ sword. Detailed face.
+const HEROLEG = {h:'hairh',s:'skin',b:'dbrown',w:'white',e:'black',m:'dred',t:'tunic',d:'tunicd',p:'brown',k:'black',g:'lgray',v:'white'};
+const hero_idle = S(HEROLEG,`
+....hhhhhhhh....
+..hhhhhhhhhhhh..
+..hhsssssssshh..
+..hsbbssssbbsh..
+..hswessssewsh..
+..hsssseesssssh.
+..hsssmmmmsssh..
+....ssssssss....
+...tttttttttt...
+..tdtttttttdt..g
+..ttttttttttt.gg
+..tdtttttttdt..g
+...tttttttt.....
+...pp....pp.....
+...kk....kk.....
+..kkk....kkk....
+`);
+const hero_walk = S(HEROLEG,`
+....hhhhhhhh....
+..hhhhhhhhhhhh..
+..hhsssssssshh..
+..hsbbssssbbsh..
+..hswessssewsh..
+..hsssseesssssh.
+..hsssmmmmsssh..
+....ssssssss....
+...tttttttttt...
+..tdtttttttdt..g
+..ttttttttttt.gg
+..tdtttttttdt..g
+...tttttttt.....
+..pp......pp....
+..kk......kk....
+.kk........kk...
+`);
+const hero_jump = S(HEROLEG,`
+....hhhhhhhh....
+..hhhhhhhhhhhh..
+..hhsssssssshh..
+..hsbbssssbbsh..
+..hswessssewsh..
+..hsssseesssssh.
+..hsssmmmmsssh..
+....ssssssss....
+.ttttttttttt..gg
+.tdtttttttdtt..g
+..ttttttttttt..g
+..tdtttttttdt...
+...pppppppp.....
+...pp....pp.....
+...kk....kk.....
+....k....k......
+`);
+const hero_attack = S(HEROLEG,`
+....hhhhhhhh....
+..hhhhhhhhhhhh..
+..hhsssssssshh..
+..hsbbssssbbsh..
+..hswessssewsh..
+..hsssseesssssh.
+..hsssmmmmsssh..
+....ssssssss....
+...tttttttttt...
+..tdttttttttgggg
+..tttttttttvgggg
+..tdtttttttdt...
+...tttttttt.....
+...pp....pp.....
+...kk....kk.....
+..kkk....kkk....
+`);
+
+// Hilda - village woman, braided blonde hair, blue dress
+const hilda = S({h:'hairb',s:'skin',e:'black',d:'blue',l:'lblue',w:'white',k:'black',a:'pink'},`
+....hhhhhhhh....
+...hhhhhhhhhh...
+...hhssssshh....
+...h.sesses.h...
+....assssssa....
+....ssssssss....
+.....wwwww......
+....dddddddd....
+...ddlllllldd...
+...ddlllllldd...
+...adlllllld a..
+...adlllllldaa..
+....dddddddd....
+.....d....d.....
+.....kk..kk.....
+....kkk..kkk....
+`);
+
+// Blacksmith - burly, leather apron, dark beard
+const blacksmith = S({h:'hairg',s:'dskin',e:'black',a:'dbrown',l:'brown',k:'black',m:'gray',r:'red'},`
+.....hhhhhh.....
+....hhhhhhhh....
+....hsessehh....
+....hmmmmmhh....
+....smmmmms.....
+....ssssssss....
+...rrrrrrrrrr...
+...lalllllall...
+...lalllllall...
+...laaaaaaall...
+...lalllllall...
+...la.llll.al...
+....l......l....
+....kk....kk....
+....kk....kk....
+...kkk....kkk...
+`);
+
+// Villager - simple peasant
+const villager = S({h:'hairh',s:'skin',e:'black',c:'cloth',d:'dbrown',k:'black'},`
+................
+....hhhhhhhh....
+...hhhhhhhhhh...
+....hsessehh....
+....ssssssss....
+.....sssss......
+....cccccccc....
+...cdcccccdc....
+...cdcccccdc....
+...ccccccccc....
+....cc...cc.....
+....cc...cc.....
+....cc...cc.....
+....kk...kk.....
+....kk...kk.....
+...kkk...kkk....
+`);
+
+// Gilbert - estate executor, sharp dark suit, calm menace
+const gilbert = S({h:'hairg',s:'dskin',e:'white',c:'black',t:'dgray',w:'white',k:'black',r:'red'},`
+.....hhhhhh.....
+....hhhhhhhh....
+....hseesseh....
+....hssssssh....
+.....ssssss.....
+....cwcccwcc....
+....cwcccwcc....
+...ccwcrcwccc...
+...cctcccctcc...
+...cctcccctcc...
+...cctcccctcc...
+....cc...cc.....
+....cc...cc.....
+....cc...cc.....
+....kk...kk.....
+...kkk...kkk....
+`);
+
+// Pierce - elderly heir, white hair, beige cardigan
+const pierce = S({h:'white',s:'skin',e:'black',c:'tan',d:'cloth',k:'black'},`
+................
+....hhhhhhhh....
+...hhhhhhhhhh...
+....hsesssh.....
+....hssssss.....
+.....ssssss.....
+....cccccccc....
+...cdcccccdc....
+...cdcccccdc....
+...cccccccccc...
+...cc......cc...
+....cc....cc....
+....cc....cc....
+....kk....kk....
+....kk....kk....
+...kkk....kkk...
+`);
+// Troy - athletic, red letterman jacket
+const troy = S({h:'hairg',s:'dskin',e:'black',r:'red',d:'dred',w:'white',k:'black'},`
+................
+....hhhhhhhh....
+...hhhhhhhhhh...
+....hsessehh....
+....ssssssss....
+.....ssssss.....
+....rrwwwwrr....
+...rrwwwwwwrr...
+...rdwwwwwwdr...
+...rrwwwwwwrr...
+...rr......rr...
+....rr....rr....
+....kk....kk....
+....kk....kk....
+....ww....ww....
+...www....www...
+`);
+// Abed - the overpowered wizard, blue robe & gold star hat
+const abed = S({h:'hairg',s:'dskin',e:'black',w:'blue',d:'dblue',y:'gold',k:'black',l:'lblue'},`
+.......y........
+......yyy.......
+.....yyyyy......
+....wwwwwww.....
+...wwhhhhhww....
+...whsesssh w...
+....hssssss.....
+....yssssssy....
+...wwwwwwwwww...
+..wdwwwwwwwwdw..
+..wdwlwwwwlwdw..
+..wdwwwwwwwwdw..
+...wwwwwwwwww...
+....kk....kk....
+....kk....kk....
+...kkk....kkk...
+`);
+// Britta - potion-brewer, green apron
+const britta = S({h:'hairb',s:'skin',e:'black',g:'green',d:'dgreen',w:'white',k:'black'},`
+....hhhhhhhh....
+...hhhhhhhhhh...
+...hhssssssh....
+....hsesssh.....
+....ssssssss....
+.....wwwww......
+....gggggggg....
+...gdgggggdg....
+...gdgggggdg....
+...gggggggggg...
+...gg......gg...
+....gg....gg....
+....gg....gg....
+....kk....kk....
+....kk....kk....
+...kkk....kkk...
+`);
+// Annie - tidy, blue dress, brown hair
+const annie = S({h:'cloth',s:'skin',e:'black',b:'blue',d:'dblue',w:'white',k:'black'},`
+...hhhhhhhhhh...
+..hhhhhhhhhhhh..
+..hhhssssshhh...
+....hsesssh.....
+....ssssssss....
+.....ssssss.....
+....bbwwwwbb....
+...bbwwwwwwbb...
+...bdwwwwwwdb...
+...bbwwwwwwbb...
+...bb......bb...
+....bb....bb....
+....bb....bb....
+....kk....kk....
+....kk....kk....
+...kkk....kkk...
+`);
+// Shirley - kind, purple cardigan
+const shirley = S({h:'hairg',s:'dskin',e:'black',p:'purple',d:'dpurple',w:'white',k:'black'},`
+................
+...hhhhhhhhhh...
+..hhhhhhhhhhhh..
+...hhsessehh....
+....ssssssss....
+.....ssssss.....
+....pppppppp....
+...pdpppppdp....
+...pdpppppdp....
+...pppppppppp...
+...pp......pp...
+....pp....pp....
+....pp....pp....
+....kk....kk....
+....kk....kk....
+...kkk....kkk...
+`);
+// Traveling merchant - hooded, cloak
+const merchant = S({h:'dbrown',s:'skin',e:'black',c:'purple',d:'dpurple',y:'gold',k:'black'},`
+.....hhhhhh.....
+....hhhhhhhh....
+...hhhhhhhhhh...
+...hhseesseh....
+....hssssssh....
+....cccccccc....
+...ccccccccccc..
+...cdcyyyycdc...
+...cdcyyyycdc...
+...ccccccccccc..
+...cc......cc...
+...cc......cc...
+...cc......cc...
+...kk......kk...
+...kk......kk...
+..kkk......kkk..
+`);
+// Abed's Spell Scroll - item
+const scroll_item = S({p:'tan',d:'cloth',y:'gold',k:'black',b:'blue'},`
+................
+...kk......kk...
+..kbpppppppbk...
+..kbpppppppbk...
+..kbpbbpbbpbk...
+..kbpppppppbk...
+..kbpbbbbbpbk...
+..kbpppppppbk...
+..kbpbbpbbpbk...
+..kbpppppppbk...
+..kbpppppppbk...
+..kbpyyyyypbk...
+..kbpppppppbk...
+..kk......kk....
+................
+................
+`);
+
+// Cornelius portrait
+const cornelius = S({h:'lgray',s:'skin',e:'black',m:'white',c:'dred',k:'black',d:'dgray'},`
+....hhhhhhhh....
+...hhhhhhhhhh...
+..hhhhddddhhhh..
+..hhdsssssddhh..
+..hdssssssssdh..
+..hdseseseses...
+..hdssmmmssss...
+..hdsssssssss...
+..hdsmmmmmsss...
+..hdsssssssss...
+..hccccccccc....
+.cccccccccccc...
+.cdcccccccccd...
+.cdcccccccccd...
+.cccccccccccc...
+..cccccccccc....
+`);
+// Cornelius boss head (floating, larger feel)
+const cornelius_boss = S({h:'lgray',s:'skin',e:'red',m:'white',c:'dred',k:'black',d:'dgray',y:'yellow'},`
+...yhhhhhhhhy...
+..yhhhhhhhhhhy..
+..hhdddddddhh...
+..hdsssssssddh..
+..hdsssssssssd..
+..hdseseseses...
+..hdsssssssss...
+..hdsmmmmmsss...
+..hdssssssssss..
+..hdsmmmmmssss..
+..hdsssssssss...
+..hcccccccccc...
+.ccdcccccccdcc..
+.ccdcccccccdcc..
+..cccccccccccc..
+...cccccccc.....
+`);
+
+// Bat enemy
+const bat = S({k:'black',d:'dgray',e:'red',w:'gray'},`
+................
+................
+.w.kk......kk.w.
+ww.kkk....kkk.ww
+wwwkkkk..kkkkwww
+.wwkkkkkkkkkkww.
+...kkekkkekkk...
+....kkkkkkkk....
+.....kkkkkk.....
+......kkkk......
+.......kk.......
+................
+................
+................
+................
+................
+`);
+// Slime
+const slime = S({g:'lgreen',d:'dgreen',w:'white',k:'black'},`
+................
+................
+................
+.....gggggg.....
+....gggggggg....
+...ggdggggdg....
+...ggwggggwg....
+..gggggggggggg..
+..gggggggggggg..
+..gddgggggggdg..
+..gggggggggggg..
+.gggggggggggggg.
+.gggggggggggggg.
+.gggggggggggggg.
+.dggggggggggggd.
+..dddddddddddd..
+`);
+// Goblin
+const goblin = S({g:'lgreen',d:'dgreen',k:'black',e:'red',s:'skin',v:'dbrown'},`
+................
+....ggggggg.....
+...gggggggggg...
+...gddggggddg...
+...gggggggggg...
+...ggsggggsg....
+....seeeess.....
+....sssss.......
+....vvvvv.......
+...vggvvvgg.....
+...vggvvvgg.....
+....g..v..g.....
+....k.vvv.k.....
+....k.....k.....
+....k.....k.....
+....kk...kk.....
+`);
+// Castle knight/guard
+const knight = S({s:'stone',d:'stonedk',k:'black',e:'red',r:'red',w:'white'},`
+.....ssssss.....
+....sssssssss...
+....sdeddedss...
+....sssssssss...
+....sdssssds....
+....rssssssr....
+...sssssssss....
+...sdsssssds....
+...sssssssss....
+...sssssssss....
+....ss...ss.....
+....ss...ss.....
+....dd...dd.....
+....dd...dd.....
+....kk...kk.....
+...kkk...kkk....
+`);
+
+// Items
+const coin_a = S({y:'gold',d:'golddk',w:'white'},`
+................
+................
+.....yyyyyy.....
+....ydddddyy....
+...yywdddddy....
+...ydwddddyd....
+...ydwddddyd....
+...yddddddyd....
+...yddddddyd....
+....ydddddyy....
+.....yyyyyy.....
+................
+................
+................
+................
+................
+`);
+const coin_b = S({y:'gold',d:'golddk',w:'white'},`
+................
+................
+.......yyy......
+......yddyy.....
+......ywddy.....
+......ywddy.....
+......yddyd.....
+......yddyd.....
+......yddyd.....
+.......yyy......
+................
+................
+................
+................
+................
+................
+`);
+const crystal = S({c:'crystal',d:'crystald',w:'white'},`
+................
+.......w........
+......wcw.......
+.....wcccw......
+....wccdccw.....
+....wcdcdcw.....
+...wccdcdccw....
+...wcdcdcdcw....
+...wccdcdccw....
+....wcdcdcw.....
+....wccdccw.....
+.....wcccw......
+......wcw.......
+.......w........
+................
+................
+`);
+const lantern = S({k:'black',y:'yellow',o:'orange',g:'gray',w:'white'},`
+................
+.......g........
+......ggg.......
+......g.g.......
+.....ggggg......
+.....gyoyg......
+....gyoooyg.....
+....gyowoyg.....
+....gyoooyg.....
+....gyoooyg.....
+.....gyoyg......
+.....ggggg......
+......ggg.......
+................
+................
+................
+`);
+const potion = S({r:'red',d:'dred',g:'gray',w:'white',k:'black'},`
+................
+.......gg.......
+.......gg.......
+......gwwg......
+......gwwg......
+.....grrrrg.....
+....grrrrrrg....
+....grwrrrrg....
+....grrrrrrg....
+....grrrrrrg....
+....grrrrrrg....
+.....grrrrg.....
+......gggg......
+................
+................
+................
+`);
+const sword_item = S({g:'lgray',d:'gray',y:'gold',k:'black'},`
+................
+.............g..
+............gg..
+...........gg...
+..........gg....
+.........gg.....
+........gg......
+.......gg.......
+......gg........
+.....gg.........
+....yygy........
+...yyyyy........
+....kgk.........
+...k.g..........
+................
+................
+`);
+const heart = S({r:'red',d:'dred',w:'white'},`
+................
+................
+....rr....rr....
+...rrrr..rrrr...
+..rrwwrrrrrrrr..
+..rwwwrrrrrrrr..
+..rrrrrrrrrrrr..
+..rrrrrrrrrrrr..
+..drrrrrrrrrrd..
+...drrrrrrrrd...
+....drrrrrrd....
+.....drrrrd.....
+......drrd......
+.......dd.......
+................
+................
+`);
+
+// Structures
+const building = S({w:'brown',d:'dbrown',r:'dred',k:'black',y:'yellow',g:'gray'},`
+......rrrr......
+.....rrrrrr.....
+....rrrrrrrr....
+...rrrrrrrrrr...
+..rrrrrrrrrrrr..
+.wwwwwwwwwwwwww.
+.wdwwwwwwwwwdw..
+.wdwwwwwwwwwdw..
+.wwwwwwwwwwwww..
+.wwwyywwwwwwww..
+.wwwyywwwddwww..
+.wwwwwwwwddwww..
+.wwwwwwwwddwww..
+.wwwwwwwwddwww..
+.kwwwwwwwwwwwk..
+.kkkkkkkkkkkkk..
+`);
+const cave_mouth = S({k:'black',d:'cavedk',s:'stone',g:'cave'},`
+ssssssssssssssss
+sgggsssssssgggss
+sggggssssggggsss
+sgggkkkkkkkggsss
+sggkkkkkkkkkgsss
+sgkkkkkkkkkkksss
+skkkkkkkkkkkkkss
+skkkkkkkkkkkkkks
+skkkkkkkkkkkkkks
+skkkkkkkkkkkkkks
+skkkkkkkkkkkkkks
+skkkkkkkkkkkkkks
+skkkkkkkkkkkkkks
+skkkkkkkkkkkkkks
+skkkkkkkkkkkkkks
+skkkkkkkkkkkkkks
+`);
+const castle_gate = S({k:'black',s:'stone',d:'stonedk',y:'gold',i:'dgray'},`
+ssssssssssssssss
+sddddddddddddddss
+sdiiiiiiiiiiiidss
+sdisssssssssidss
+sdissssssssssids
+sdissssyysssids.
+sdissssyysssids.
+sdisssssssssids.
+sdissssssssids..
+sdissssssssids..
+sdisssssssids...
+sdiiiiiiiiids...
+sddddddddddds...
+sssssssssssss...
+.kkk......kkk...
+.kkk......kkk...
+`);
+const throne = S({y:'gold',d:'golddk',r:'dred',k:'black',p:'purple'},`
+..y........y....
+..yy......yy....
+..yyy....yyy....
+..yryy..yyry....
+..yryyyyyyry....
+..yryyyyyyry....
+..yrrrrrrrry....
+..yrpppppppy....
+..yrpppppppy....
+..yrpppppppy....
+..yyyyyyyyyy....
+...yy....yy.....
+...yy....yy.....
+...kk....kk.....
+...kk....kk.....
+..kkk....kkk....
+`);
+const flag = S({r:'red',w:'white',k:'black',p:'brown',y:'gold'},`
+......pyyyyy....
+......prwwwr....
+......prrwwr....
+......prwwwr....
+......prrwwr....
+......prwwwr....
+......prrrrr....
+......p.........
+......p.........
+......p.........
+......p.........
+......p.........
+......p.........
+......p.........
+......p.........
+....kkpkkkk.....
+`);
+const sign_spr = S({b:'brown',d:'dbrown',w:'white',k:'black'},`
+................
+................
+....bbbbbbbb....
+...bbdddddbb....
+...bdwwwwwdb....
+...bdwddddwd....
+...bdwwwwwdb....
+...bdwddddwd....
+...bbdddddbb....
+....bbbbbbbb....
+......bb........
+......bb........
+......bb........
+......bb........
+......bb........
+.....kkkk.......
+`);
+
+// Breakable crate
+const crate = S({w:'tan',d:'dbrown',k:'dbrown'},`
+kkkkkkkkkkkkkkkk
+kwwwwwwwwwwwwwwk
+kwdwwwwwwwwwwdwk
+kwwdwwwwwwwwdwwk
+kwwwdwwwwwwdwwwk
+kwwwwdwwwwdwwwwk
+kwwwwwdwwdwwwwwk
+kwwwwwwddwwwwwwk
+kwwwwwwddwwwwwwk
+kwwwwwdwwdwwwwwk
+kwwwwdwwwwdwwwwk
+kwwwdwwwwwwdwwwk
+kwwdwwwwwwwwdwwk
+kwdwwwwwwwwwwdwk
+kwwwwwwwwwwwwwwk
+kkkkkkkkkkkkkkkk
+`);
+// Treasure chest
+const chest_c = S({b:'brown',d:'dbrown',y:'gold',k:'black'},`
+................
+................
+...kkkkkkkkkk...
+..kbyyyyyyyybk..
+..kbyddddddybk..
+..kbyddddddybk..
+.kkkkkkkkkkkkkk.
+.kbddddddddddbk.
+.kbdbbkkkkbbdbk.
+.kbdbyyyyyybdbk.
+.kbdbykkkkybdbk.
+.kbdbbbbbbbbdbk.
+.kbddddddddddbk.
+.kkkkkkkkkkkkkk.
+..kk........kk..
+................
+`);
+
+// Moist Towelette - a Hawthorne Wipes packet
+const towelette = S({w:'white',b:'lblue',d:'blue',k:'navy'},`
+................
+................
+...kkkkkkkkkk...
+..kbbbbbbbbbbk..
+..kbwwwwwwwwbk..
+..kbwbwwwwbwbk..
+..kbwwwwwwwwbk..
+..kbwwddddwwbk..
+..kbwwddddwwbk..
+..kbwwwwwwwwbk..
+..kbwbwwwwbwbk..
+..kbwwwwwwwwbk..
+..kbbbbbbbbbbk..
+...kkkkkkkkkk...
+................
+................
+`);
+
+// ============================================================================
+// TILES
+// ============================================================================
+function tilePixels(art, legend){
+  const rows = art.trim().split('\n').map(r=>r.replace(/^\s+/,''));
+  return (x,y,glitch=0)=>{
+    for(let ry=0;ry<rows.length;ry++){
+      const r=rows[ry];
+      for(let rx=0;rx<r.length;rx++){
+        const c=r[rx]; if(c==='.') continue;
+        let col = P[legend[c]]||legend[c];
+        if (glitch>0 && Math.random()<glitch*0.06){
+          col=[P.glitch1,P.glitch2,P.glitch3,P.glitch4][Math.floor(Math.random()*4)];
+        }
+        ctx.fillStyle=col; ctx.fillRect(x+rx,y+ry,1,1);
+      }
+    }
+  };
+}
+const TILES = {};
+TILES.grass = tilePixels(`
+gGgggGgggggGgggg
+GggggggGgggggggG
+dddddddddddddddd
+dDdddDdddDddDddd
+dddDdddDdddddDdd
+dDddddDddDdddddD
+ddDdddddddDddddd
+dDddDddDddddDddd
+ddddDddddDdddddd
+dDdddddDddddDddd
+dddDddddddDddddd
+dDddDdddDdddddDd
+ddddddDdddDddddd
+dDdddddddDdddDdd
+dddDddDdddddddDd
+dDddddddDdddDddd
+`,{g:'green',G:'lgreen',d:'brown',D:'dbrown'});
+TILES.dirt = tilePixels(`
+dddddddddddddddd
+dDdddDdddDddDddd
+dddDdddDdddddDdd
+dDddddDddDdddddD
+ddDdddddddDddddd
+dDddDddDddddDddd
+ddddDddddDdddddd
+dDdddddDddddDddd
+dddDddddddDddddd
+dDddDdddDdddddDd
+ddddddDdddDddddd
+dDdddddddDdddDdd
+dddDddDdddddddDd
+dDddddddDdddDddd
+ddDdddDdddDddDdd
+dDddDddddDddddDd
+`,{d:'brown',D:'dbrown'});
+TILES.platform = tilePixels(`
+wwwwwwwwwwwwwwww
+wDwwwwDwwwwwDwww
+DDDDDDDDDDDDDDDD
+DddddddddddddddD
+DddddddddddddddD
+DDDDDDDDDDDDDDDD
+................
+................
+................
+................
+................
+................
+................
+................
+................
+................
+`,{w:'brown',d:'dbrown',D:'dbrown'});
+TILES.stone = tilePixels(`
+ssssssssssssssss
+sSSSSSSSSSSSSSSs
+sSdSSSSSSSSSdSSs
+sSSSSSSSSSSSSSSs
+sSSSSSdSSSdSSSSs
+sSSSSdSSSSSSSSSs
+sSdSSSSSSSSSSdSs
+sSSSSSSSSdSSSSSs
+sSSSSdSSSSSSSSSs
+sSSSSSSSSSSdSSSs
+sSdSSSSSSSSSSSSs
+sSSSSSSdSSSSSSSs
+sSSdSSSSSSSSSdSs
+sSSSSSSSSSdSSSSs
+sSSSSSSSSSSSSSSs
+ssssssssssssssss
+`,{s:'stonedk',S:'stone',d:'black'});
+TILES.cave = tilePixels(`
+cccccccccccccccc
+cdcccccccccccccc
+cccccdcccccccccc
+ccccccccccccdccc
+cdccccccccdccccc
+cccccccccccccccc
+ccccdcccccccccdc
+cccccccccccccccc
+cccccccdcccccccc
+cccccccccccccccc
+cdccccccccdccccc
+cccccccccccccccc
+cccccdcccccccccc
+cccccccccccccccc
+cdccccccccccdccc
+cccccccccccccccc
+`,{c:'cave',d:'cavedk'});
+TILES.caverock = tilePixels(`
+cccccccccccccccc
+cSSSSSSSSSSSSSSc
+cSdSSSSSSSSdSSSc
+cSSSSSSSSSSSSSSc
+cSSSSSdSSSSSSSSc
+cSSdSSSSSSSdSSSc
+cSSSSSSSSSSSSSSc
+cSSSSSSSdSSSSSSc
+cSSSdSSSSSSSSSSc
+cSSSSSSSSSSSdSSc
+cSdSSSSSSSSSSSSc
+cSSSSSSSSdSSSSSc
+cSSSSdSSSSSSSSSc
+cSSSSSSSSSSSSSSc
+cSSSSSSSSSSSSSSc
+cccccccccccccccc
+`,{c:'cavedk',S:'cave',d:'black'});
+TILES.castle = tilePixels(`
+KKKKKKKKKKKKKKKK
+KppppppppppppppK
+KppPPppppppPPppK
+KppPPppppppPPppK
+KppppppppppppppK
+KKKKKKKKKKKKKKKK
+KppppPPppPPppppK
+KppppPPppPPppppK
+KppppppppppppppK
+KKKKKKKKKKKKKKKK
+KpPPppppppppPPpK
+KpPPppppppppPPpK
+KppppppppppppppK
+KKKKKKKKKKKKKKKK
+KppppppppppppppK
+KKKKKKKKKKKKKKKK
+`,{K:'dpurple',p:'purple',P:'dblue'});
+TILES.spike = tilePixels(`
+................
+................
+................
+................
+....s...s...s...
+...ss...ss..ss..
+...ws..wss..wss.
+..sws..wsss.wss.
+.ssws.ssss.ssss.
+sssws.sssssssss.
+ssssssssssssssss
+ssssssssssssssss
+sdsdsdsdsdsdsdsd
+ssssssssssssssss
+dddddddddddddddd
+dddddddddddddddd
+`,{s:'gray',w:'white',d:'dgray'});
+TILES.tree = tilePixels(`
+....lllggll.....
+...lggdggdgl....
+..llggdggggl....
+..gggdgggggdg...
+.lggggggdggglll.
+lggdgggggggdlll.
+.lggggdggggglll.
+..lggggggdggl...
+..lggdgggggl....
+....bbbbbb......
+....bbbbbb......
+....bbkbbb......
+....kbbbbb......
+....kbbbbk......
+....kbbbk.......
+....kkkk........
+`,{l:'lgreen',g:'green',d:'dgreen',b:'brown',k:'dbrown'});
+
+const SOLID = {'_':1,'#':1,'=':1,'S':1,'C':1,'K':1,'R':1};
+const HAZARD = {'^':1};
+
+TILES.rubble = tilePixels(`
+RrRRrRRRrRRrRRRr
+rRRkRRrRRRrkRRRR
+RRkRRRRkRRRRRkRR
+RrRRrRRRrRRrRRRr
+rRRRkRRrRRkRRRrR
+RkRRRRrRRRRRkRRR
+RrRRrRRRrRRrRRRr
+rRRkRRrRRRrkRRRR
+RRkRRRRkRRRRRkRR
+RrRRrRRRrRRrRRRr
+rRRRkRRrRRkRRRrR
+RkRRRRrRRRRRkRRR
+RrRRrRRRrRRrRRRr
+rRRkRRrRRRrkRRRR
+RRkRRRRkRRRRRkRR
+RrRRrRRRrRRrRRRr
+`,{R:'stone',r:'lgray',k:'stonedk'});
+
+function drawTile(code,x,y,glitch=0){
+  let t=null;
+  if (code==='_') t=TILES.grass;
+  else if (code==='#') t=TILES.dirt;
+  else if (code==='=') t=TILES.platform;
+  else if (code==='S') t=TILES.stone;
+  else if (code==='C') t=TILES.caverock;
+  else if (code==='K') t=TILES.castle;
+  else if (code==='^') t=TILES.spike;
+  else if (code==='T') t=TILES.tree;
+  else if (code==='R') t=TILES.rubble;
+  if (t) t(x,y,glitch);
+}
+
+// ============================================================================
+// LEVELS
+// Tile codes: ' ' sky | '_' grass(solid) | '#' dirt(solid) | '=' platform(solid)
+//   'S' stone(solid) | 'C' caverock(solid) | 'K' castle(solid) | '^' spike(hazard)
+//   'T' tree(decoration only) - treated as decoration, NOT solid
+// Each level string has EXACTLY 16 rows. Ground row is index 13.
+// ============================================================================
+function mkLevel(str){
+  if (str.startsWith('\n')) str=str.slice(1);
+  if (str.endsWith('\n')) str=str.slice(0,-1);
+  let rows = str.split('\n');
+  // pad missing rows at the TOP (sky) so the ground stays anchored at the bottom
+  while (rows.length<16) rows.unshift('');
+  const w = Math.max(...rows.map(r=>r.length));
+  return rows.map(r=>{ while(r.length<w) r=r+' '; return r; });
+}
+
+const LEVELS = [
+  // ---- LEVEL 0: THE VILLAGE OF HAWKTHORNE ----
+  {
+    name:"Village of Hawkthorne", bg:'village', music:'village', safe:true,
+    tiles: mkLevel(`
+
+
+
+
+                    ========                                            ========
+
+
+            ========                ========                ========                ========
+
+
+        ========        ========        ========        ========        ========
+
+
+__________________________________________________________________________________________________
+####################################################################################################
+####################################################################################################
+`),
+    entities:[
+      {type:'spawn', x:40, y:176},
+      {type:'sign', x:96, y:192, dialog:'sign_village'},
+      {type:'scene_trigger', x:128, y:140, scene:'village_hook'},
+      {type:'npc', npc:'pierce', x:172, y:192, dialog:'pierce'},
+      {type:'building', x:214, y:176},
+      {type:'coin', x:140, y:144}, {type:'coin', x:172, y:144}, {type:'coin', x:204, y:144},
+      {type:'coin', x:214, y:98}, {type:'coin', x:246, y:98}, {type:'coin', x:278, y:98},
+      {type:'coin', x:340, y:50}, {type:'coin', x:372, y:50}, {type:'coin', x:404, y:50},
+      {type:'crate', x:300, y:192, loot:'coin'}, {type:'crate', x:320, y:192, loot:'coins'},
+      {type:'npc', npc:'hilda', x:392, y:192, dialog:'hilda'},
+      {type:'building', x:452, y:176, smithy:true},
+      {type:'npc', npc:'blacksmith', x:486, y:192, dialog:'blacksmith'},
+      {type:'coin', x:580, y:98}, {type:'coin', x:612, y:98},
+      {type:'crate', x:548, y:192, loot:'coin'}, {type:'crate', x:568, y:192, loot:'heart'},
+      {type:'npc', npc:'elder', x:632, y:192, dialog:'elder'},
+      {type:'building', x:712, y:176},
+      {type:'npc', npc:'britta', x:740, y:192, dialog:'britta'},
+      {type:'npc', npc:'villager', x:824, y:192, dialog:'villager1'},
+      {type:'crate', x:888, y:192, loot:'coin'}, {type:'crate', x:908, y:192, loot:'coin'},
+      {type:'scene_trigger', x:956, y:140, scene:'troy_recruit'},
+      {type:'building', x:1020, y:176},
+      {type:'coin', x:980, y:98}, {type:'coin', x:1012, y:98}, {type:'coin', x:1044, y:98},
+      {type:'npc', npc:'annie', x:1058, y:192, dialog:'annie_idle'},
+      {type:'npc', npc:'shirley', x:1092, y:192, dialog:'shirley_idle'},
+      {type:'crate', x:1150, y:192, loot:'scroll'}, {type:'crate', x:1170, y:192, loot:'coins'},
+      {type:'chest', x:1262, y:50, loot:'scroll'},
+      {type:'scene_trigger', x:1320, y:140, scene:'blacksmith_scene', need:'lantern'},
+      {type:'gilbert_flee', x:1420, y:192, dialog:'gilbert_flee_village'},
+      {type:'cave_exit', x:1480, y:176, to:1, need:'lantern'},
+    ],
+  },
+
+  // ---- LEVEL 1: THE BLACK CAVERNS ----
+  {
+    name:"The Black Caverns", bg:'cave', music:'cave', dark:true,
+    tiles: mkLevel(`
+CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
+C                                                                                                  C
+C                                                                                                  C
+C       SSSS                                                                                       C
+C                          SSSSSS                                                                  C
+C                                              SSSS                              SSSSSS            C
+C   SSSSSS                                                       SSSSSS                             C
+C                    SSSSSS               SSSS                                          SSSSSS     C
+C                                                       SSSS                                       C
+C            SSSS                  SSSS                                  SSSS                      C
+C                                                                                                  C
+C       SSSS              ^^^^^             ^^^^^^              ^^^^^             ^^^^^^             C
+C                                                                                                  C
+SSSSSSSSSS    SSSSSSSSSSSSSS     SSSSSSSSSSSSS     SSSSSSSSSSSSSS    SSSSSSSSSSSSSS     SSSSSSSSSSSSSSS
+SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+`),
+    entities:[
+      {type:'spawn', x:36, y:188},
+      {type:'bat', x:260, y:120}, {type:'bat', x:430, y:100}, {type:'bat', x:640, y:120},
+      {type:'bat', x:900, y:90}, {type:'bat', x:1180, y:110}, {type:'bat', x:1400, y:100},
+      {type:'slime', x:330, y:192}, {type:'slime', x:560, y:192}, {type:'slime', x:820, y:192},
+      {type:'slime', x:1080, y:192}, {type:'slime', x:1320, y:192},
+      {type:'coin', x:140, y:120}, {type:'coin', x:480, y:88}, {type:'coin', x:700, y:120},
+      {type:'coin', x:1010, y:152}, {type:'coin', x:1250, y:88},
+      {type:'potion_pickup', x:1100, y:88},
+      {type:'crystal_pickup', x:778, y:64},
+      {type:'cave_exit', x:1560, y:176, to:2, need:'crystal'},
+    ],
+  },
+
+  // ---- LEVEL 2: HAWTHORNE WIPES COUNTRY ----
+  {
+    name:"Hawthorne Wipes Country", bg:'mountain', music:'road',
+    tiles: mkLevel(`
+
+
+
+
+                              ====                          ====
+
+              ====                          ====                            ======
+
+                        ======                       ====
+
+
+
+
+______________      ____________      ____________      _______________      _____________________
+##############^^^^^^############^^^^^^############^^^^^^###############^^^^^^#####################
+##################################################################################################
+`),
+    entities:[
+      {type:'spawn', x:36, y:188},
+      {type:'building', x:468, y:176},
+      {type:'goblin', x:240, y:192}, {type:'goblin', x:600, y:192},
+      {type:'goblin', x:1000, y:192}, {type:'goblin', x:1300, y:192},
+      {type:'coin', x:210, y:120}, {type:'coin', x:232, y:120},
+      {type:'coin', x:680, y:88}, {type:'coin', x:900, y:120},
+      {type:'coin', x:772, y:192}, {type:'coin', x:794, y:192}, {type:'coin', x:816, y:192},
+      {type:'heart_pickup', x:560, y:130},
+      {type:'npc', npc:'merchant',  x:316, y:192, dialog:'merchant'},
+      {type:'rubble', x:736, y:32},
+      {type:'gilbert_flee', x:880, y:192, dialog:'gilbert_flee_road'},
+      {type:'npc', npc:'guardian',  x:1140, y:192, dialog:'guardian'},
+      {type:'flag', x:1520, y:176, to:3},
+    ],
+  },
+
+  // ---- LEVEL 3: CASTLE HAWKTHORNE ----
+  {
+    name:"Castle Hawkthorne", bg:'castle', music:'castle',
+    tiles: mkLevel(`
+KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKK
+K                                                                                                  K
+K                                                                                                  K
+K          ====                          ====                            ====                     K
+K                                                                                                  K
+K                   ====                          =====                          ====             K
+K     ====                                                                                         K
+K                            ====                          ====                          ====     K
+K                                                                                                  K
+K              ====                  ====                          ====                           K
+K                                                                                                  K
+K     ====                  ====                  ====                  ====              ====     K
+K                                                                                                  K
+KKKKKKKKKK      KKKKKKKKKKKKK      KKKKKKKKKKKK      KKKKKKKKKKKKKK      KKKKKKKKKKKKKKKKKKKKKKKKKKKKK
+KKKKKKKKKK^^^^^^KKKKKKKKKKKKK^^^^^^KKKKKKKKKKKK^^^^^^KKKKKKKKKKKKKK^^^^^^KKKKKKKKKKKKKKKKKKKKKKKKKKKKK
+KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKK
+`),
+    entities:[
+      {type:'spawn', x:36, y:188},
+      {type:'gate', x:78, y:32},
+      {type:'knight', x:300, y:192}, {type:'knight', x:560, y:192},
+      {type:'knight', x:860, y:192}, {type:'knight', x:1180, y:192},
+      {type:'towelette', x:120, y:190},
+      {type:'towelette', x:280, y:190},
+      {type:'towelette', x:430, y:190},
+      {type:'towelette', x:650, y:190},
+      {type:'towelette', x:930, y:190},
+      {type:'towelette', x:1250, y:190},
+      {type:'towelette', x:1380, y:190},
+      {type:'heart_pickup', x:600, y:150},
+      {type:'rubble', x:1020, y:32, crucial:true},
+      {type:'boss_trigger', x:1430, y:96, kind:'gilbert'},
+    ],
+  },
+
+  // ---- LEVEL 4: THE THRONE ROOM ----
+  {
+    name:"The Throne of Hawkthorne", bg:'throne', music:'boss', boss:true,
+    tiles: mkLevel(`
+KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKK
+K                                      K
+K                                      K
+K                                      K
+K          ====            ====        K
+K                                      K
+K                                      K
+K     ====                      ====   K
+K                                      K
+K                                      K
+K              ====      ====          K
+K                                      K
+K                                      K
+KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKK
+KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKK
+KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKK
+`),
+    entities:[
+      {type:'spawn', x:36, y:188},
+      {type:'throne', x:560, y:176},
+    ],
+  },
+];
+
+// ============================================================================
+// ITEMS / INVENTORY DEFINITIONS
+// ============================================================================
+const ITEM_DEFS = {
+  lantern:    { name:'Lantern',                    sprite:lantern, desc:'Lights the Black Caverns.' },
+  crystal:    { name:'White Crystal of Discipline', sprite:crystal, desc:'Opens the gate of Castle Hawkthorne.' },
+  iron_sword: { name:'Iron Sword',                 sprite:sword_item, desc:'A keener blade. Attacks hit harder.' },
+};
+
+// ============================================================================
+// STORY / DIALOGUE
+// Each dialog entry: array of { s:speaker, t:text }  OR  { choice:[{label,go}] }
+// 'go' is a function run when the choice is picked.
+// ============================================================================
+const DIALOG = {
+  intro: [
+    {s:'CORNELIUS', t:"Welcome, players, to JOURNEY TO THE CENTER OF HAWKTHORNE."},
+    {s:'CORNELIUS', t:"I, Cornelius Hawthorne, spent thirty years building this game for my son Pierce."},
+    {s:'CORNELIUS', t:"Reach the throne of Castle Hawkthorne and the family fortune is yours. Most of you will fail. Good."},
+    {s:'JEFF', t:"...we're 8-bit. Everyone's an 8-bit sprite."},
+    {s:'ABED', t:"It's a top-down adventure game. We have a quest. We should find the quest-giver."},
+    {s:'JEFF', t:"Then let's win this thing and get Pierce his money. Move."},
+  ],
+  sign_village: [
+    {s:'SIGN', t:"VILLAGE OF HAWKTHORNE. Castle to the north. Black Caverns to the east. Mind the inheritance."},
+  ],
+  // ----- HILDA (quest giver) -----
+  hilda_intro: [
+    {s:'HILDA', t:"Travelers! You play Cornelius's game. I am Hilda, the blacksmith's daughter."},
+    {s:'ABED', t:"...She's well-written. I think my character is supposed to fall in love with her."},
+    {s:'HILDA', t:"The throne you seek lies in Castle Hawkthorne, far to the north. But its gate is sealed."},
+    {s:'HILDA', t:"Only the WHITE CRYSTAL OF DISCIPLINE can open it. It lies deep in the Black Caverns, east of the village."},
+    {s:'HILDA', t:"The caverns are pitch black. You will need a LANTERN. My father the blacksmith sells them — bring him gold."},
+    {s:'HILDA', t:"Gold is scattered through the village. Gather it, buy a lantern, then brave the caverns."},
+  ],
+  hilda_remind: [
+    {s:'HILDA', t:"Buy a lantern from my father, then descend into the Black Caverns. The White Crystal waits there."},
+    {s:'HILDA', t:"Without the crystal, Castle Hawkthorne will never open for you."},
+  ],
+  hilda_haslantern: [
+    {s:'HILDA', t:"You have a lantern! Good. The Black Caverns lie to the east — the crystal is at their deepest point."},
+  ],
+  hilda_hascrystal: [
+    {s:'HILDA', t:"The White Crystal of Discipline — you truly found it!"},
+    {s:'HILDA', t:"Take it north. The gate of Castle Hawkthorne will open at its touch. Be careful in there."},
+    {s:'HILDA', t:"Cornelius built that castle to break the unworthy. Prove him wrong."},
+  ],
+  // ----- BLACKSMITH (shop) -----
+  blacksmith_intro: [
+    {s:'BLACKSMITH', t:"A blade, a light, a cure — coin buys all. Browse my wares, traveler."},
+  ],
+  blacksmith_nolantern: [
+    {s:'BLACKSMITH', t:"Headed for the caverns? You'll want that lantern. Pitch dark down there. Many never come back up."},
+  ],
+  blacksmith_done: [
+    {s:'BLACKSMITH', t:"Mind my Hilda while you're questing, will you? She's all I've got."},
+  ],
+  // ----- VILLAGERS -----
+  villager1: [
+    {s:'VILLAGER', t:"That executor — Gilbert — went down to the caverns ahead of you. Hungry man. He wants this badly."},
+    {s:'VILLAGER', t:"They say Cornelius never let Gilbert sit at the family table. Thirty years of service, never once a guest."},
+  ],
+  villager2_give: [
+    {s:'VILLAGER', t:"You'll need this more than I will. Take a HEALTH POTION — press Q to drink one when you're hurt."},
+    {s:'VILLAGER', t:"The castle ahead is cruel. Cornelius designed it that way. Take care, friend."},
+  ],
+  villager2_done: [
+    {s:'VILLAGER', t:"Drink a potion with Q when your hearts run low. Good luck up there."},
+  ],
+  // ----- GILBERT -----
+  gilbert_village: [
+    {s:'GILBERT', t:"So Pierce sent his little study group. How sweet."},
+    {s:'GILBERT', t:"I am Gilbert Lawson. I served Cornelius Hawthorne thirty years. This game — this throne — should be mine."},
+    {s:'JEFF', t:"It's Pierce's inheritance, Gilbert."},
+    {s:'GILBERT', t:"Is it? We'll see who reaches the throne first. Stay out of my way."},
+  ],
+  gilbert_road: [
+    {s:'GILBERT', t:"Still chasing me? You don't even want the money. You're doing this for HIM. For Pierce."},
+    {s:'GILBERT', t:"Pierce Hawthorne never earned a thing in his life. The name was simply handed to him."},
+    {s:'GILBERT', t:"...Forget it. The castle is ahead. Try not to die before I beat you to the throne."},
+  ],
+  // ----- CAVE GATE (no lantern) -----
+  cave_locked: [
+    {s:'NARRATOR', t:"The mouth of the Black Caverns yawns open — and utterly dark."},
+    {s:'JEFF', t:"We can't see a thing in there. We need a lantern from the blacksmith first."},
+  ],
+  need_crystal: [
+    {s:'JEFF', t:"This tunnel leads out — but we're not done here."},
+    {s:'ABED', t:"We came for the White Crystal of Discipline. It's still down here, to the east. Find it first."},
+  ],
+  // ----- CRYSTAL PICKUP -----
+  crystal_get: [
+    {s:'NARRATOR', t:"At the heart of the caverns, a cold light pulses on a stone pedestal."},
+    {s:'NARRATOR', t:"You take the WHITE CRYSTAL OF DISCIPLINE. The castle gate will open for you now."},
+    {s:'CORNELIUS', t:"...Further than I expected. No matter. The castle itself will be your grave."},
+  ],
+  // ----- CASTLE GATE -----
+  gate_locked: [
+    {s:'NARRATOR', t:"The gate of Castle Hawkthorne stands sealed. There is a crystal-shaped recess in the stone."},
+    {s:'JEFF', t:"We need the White Crystal of Discipline from the caverns."},
+  ],
+  gate_open: [
+    {s:'NARRATOR', t:"You raise the White Crystal of Discipline to the recess."},
+    {s:'NARRATOR', t:"It locks into place with a deep hum. The gate of Castle Hawkthorne grinds open."},
+    {s:'CORNELIUS', t:"Inside my castle, players. Come and meet me. Come and lose."},
+  ],
+  // ----- THRONE / BOSS -----
+  throne_pre: [
+    {s:'NARRATOR', t:"The throne room of Hawkthorne. The throne itself sits empty atop the dais."},
+    {s:'CORNELIUS', t:"You reached my throne. I am almost impressed. Almost."},
+    {s:'CORNELIUS', t:"But the inheritance is not GIVEN. It is SURVIVED. Defend yourselves."},
+    {s:'NARRATOR', t:"The disembodied head of Cornelius Hawthorne rises, wreathed in fire. BOSS FIGHT!"},
+  ],
+  // ----- ENDING SEQUENCE -----
+  boss_down: [
+    {s:'CORNELIUS', t:"Im...possible. Beaten. By my son's... FRIENDS..."},
+    {s:'NARRATOR', t:"Cornelius's head shatters into pixels. The throne of Hawkthorne stands empty."},
+    {s:'ABED', t:"We won, Jeff. Gilbert logged off. Troy held up the wall so the rest of us could get here."},
+    {s:'ABED', t:"...I keep forgetting he isn't behind me anymore. I keep turning to tell him things."},
+    {s:'JEFF', t:"...I know, buddy. I know. Let's finish what he got us to."},
+  ],
+  ending_choice: [
+    {choice:[
+      {label:'Let Gilbert take the throne', go:()=>endGame('good')},
+      {label:'Claim the inheritance yourself', go:()=>endGame('bad')},
+    ]},
+  ],
+  ending_good: [
+    {s:'PIERCE', t:"I'm done playing my father's games. I'm signing every cent of it over to Gilbert."},
+    {s:'ABED', t:"Your half-brother. The one who's been quietly looking after you this whole time."},
+    {s:'PIERCE', t:"...Yeah. Him. He earned a seat at the table thirty years ago. Time someone pulled out his chair."},
+    {s:'NARRATOR', t:"You step away and leave the throne of Hawkthorne empty. Cornelius's game has no winner."},
+    {s:'CORNELIUS', t:"NO — the game does not ALLOW a player to simply walk away — it — it —"},
+    {s:'NARRATOR', t:"Cornelius's voice sputters and dies. That is how you beat a cruel man's game: you refuse to play it."},
+    {s:'NARRATOR', t:"You log off. Across town, Gilbert is setting two plates for dinner."},
+    {s:'NARRATOR', t:"-- YOU WON JOURNEY TO THE CENTER OF HAWKTHORNE --"},
+  ],
+  ending_bad: [
+    {s:'PIERCE', t:"...No. It's mine. My father owed me this. I'm taking every cent."},
+    {s:'NARRATOR', t:"Pierce sits upon the throne of Hawkthorne. The fortune is his."},
+    {s:'CORNELIUS', t:"THERE he is. THERE is my son. You let nothing — not pity, not a brother — stand in your way."},
+    {s:'CORNELIUS', t:"You played my game exactly as I built it. I am so very proud."},
+    {s:'NARRATOR', t:"Pierce has the fortune. It feels as hollow as everything else his father ever handed him."},
+    {s:'NARRATOR', t:"-- ENDING: THE WORTHY HEIR. Maybe there was a better way to win. --"},
+  ],
+  // ----- PIERCE -----
+  pierce_intro: [
+    {s:'PIERCE', t:"You're in. Good. This is my father's game — Cornelius Hawthorne built it for thirty years."},
+    {s:'PIERCE', t:"He never gave me a thing without a test stapled to it. Even now. Even dead."},
+    {s:'PIERCE', t:"Reach the throne and win me my inheritance. Take this — a Hawthorne family token. It's all I've got to give."},
+    {s:'NARRATOR', t:"Pierce hands you 6 gold and his nervous blessing."},
+  ],
+  pierce_after: [
+    {s:'PIERCE', t:"The throne's up north past the caverns. Don't let Gilbert beat you to it — that man wants this badly."},
+  ],
+  // ----- TROY -----
+  troy_recruit: [
+    {s:'TROY', t:"Hey — HEY! Wait up! You're doing the inheritance quest, right? I'm coming."},
+    {s:'TROY', t:"I'm Troy. I'm the strong one — it's my whole thing. Big walls of rubble block the way ahead."},
+    {s:'TROY', t:"You can't climb 'em, can't jump 'em. But I can smash straight through. So keep me close."},
+    {s:'JEFF', t:"Then stay with us, Troy. Don't wander off."},
+    {s:'NARRATOR', t:"TROY JOINS THE QUEST! He follows close behind you. Walk into a rubble wall and Troy smashes it open."},
+  ],
+  troy_after: [
+    {s:'TROY', t:"Rubble in the way? Just walk right into it. I got it. That's my whole thing."},
+  ],
+  troy_sacrifice: [
+    {s:'TROY', t:"Whoa — hold up. This wall's different. The whole ceiling's leaning on it."},
+    {s:'TROY', t:"I can smash it. But somebody's gotta hold the rest up while you get through. ...That's a me job."},
+    {s:'JEFF', t:"Troy — no. There has to be another—"},
+    {s:'TROY', t:"Jeff. I'm the strong one. It is my WHOLE THING. Let me have my whole thing."},
+    {s:'NARRATOR', t:"Troy drives his shoulder into the wall. It bursts apart — and the ceiling groans down behind him."},
+    {s:'TROY', t:"GO! Go, go, go! ...And tell Abed I'll see him after respawn."},
+    {s:'TROY', t:"...There's no respawn in this one. Is there."},
+    {s:'NARRATOR', t:"The rubble comes down. The way is open. Troy is gone."},
+    {s:'JEFF', t:"...Cool. Cool cool cool."},
+  ],
+  // ----- ELDER (riddle) -----
+  elder_ask: [
+    {s:'ELDER', t:"I am the village elder. Answer my riddle correctly and earn a reward of gold."},
+    {s:'ELDER', t:"I cost a single penny. I sit in every Hawthorne pocket. I am worthless — until the moment you are unclean. What am I?"},
+    {choice:[
+      {label:'A gold coin', go:()=>elderAnswer(false)},
+      {label:'A moist towelette', go:()=>elderAnswer(true)},
+      {label:'A sword', go:()=>elderAnswer(false)},
+    ]},
+  ],
+  elder_right: [
+    {s:'ELDER', t:"Just so! A Hawthorne Wipe — the way of the future. Cornelius's whole fortune, in three words."},
+    {s:'NARRATOR', t:"The elder rewards you with 10 gold!"},
+  ],
+  elder_wrong: [
+    {s:'ELDER', t:"No, no. Think on what Cornelius Hawthorne actually SOLD. Come back when you've puzzled it out."},
+  ],
+  elder_done: [
+    {s:'ELDER', t:"You have my reward already. Spend it well, adventurer."},
+  ],
+  // ----- BRITTA (potion cart) -----
+  britta_objects: [
+    {s:'BRITTA', t:"So you're just... doing it. Swinging a sword, smashing things. In a game, fine — but still."},
+    {s:'BRITTA', t:"Simulated violence is REHEARSED violence, Jeff. Every crate you smash, you practice not caring."},
+    {s:'JEFF', t:"Britta. They are 8-bit wooden boxes."},
+    {s:'BRITTA', t:"That's exactly what they want you to think. Anyway — I refuse to sell weapons. Potions only. Healing."},
+  ],
+  britta_pacifist: [
+    {s:'BRITTA', t:"Wait. You've come all this way and you haven't smashed or stabbed a single thing?"},
+    {s:'BRITTA', t:"Jeff. I'm... genuinely proud of you. You're beating Cornelius's violent little game WITHOUT the violence."},
+    {s:'BRITTA', t:"That's a protest. That's praxis. Here — an Abed's Scroll, on the house. Non-violent crowd control."},
+    {s:'NARRATOR', t:"Britta gives you an Abed's Scroll for your restraint."},
+  ],
+  village_hook: [
+    {s:'NARRATOR', t:"You spawn into the Village of Hawkthorne. It is NOT quiet."},
+    {s:'GILBERT', t:"OUT of the way! Move — MOVE!"},
+    {s:'NARRATOR', t:"Gilbert Lawson shoves past you, knocks a fruit cart flying, and sprints east toward the caverns."},
+    {s:'JEFF', t:"...Was that the estate executor? Inside our game?"},
+    {s:'PIERCE', t:"That's Gilbert. He wants my father's fortune. If he reaches the throne first, it is legally HIS."},
+    {s:'JEFF', t:"Then we move. Gear up and chase him. Tip: smash crates with Z — gold's hidden inside."},
+  ],
+  gilbert_flee_village: [
+    {s:'GILBERT', t:"Still down here? I'm already at the caverns. You will never catch me, Winger."},
+    {s:'NARRATOR', t:"Gilbert ducks into the mouth of the Black Caverns and is gone."},
+    {s:'JEFF', t:"He's always one step ahead. Keep moving."},
+  ],
+  gilbert_flee_road: [
+    {s:'GILBERT', t:"Persistent. I'll grant you that. But Castle Hawkthorne answers to ME."},
+    {s:'NARRATOR', t:"Gilbert turns and bolts up the road toward the castle gate."},
+  ],
+  // ----- MERCHANT (road shop) -----
+  merchant_intro: [
+    {s:'MERCHANT', t:"A traveling merchant, this deep in Hawkthorne country? Strange game. But coin is coin. Browse my wares."},
+  ],
+  // ----- GUARDIAN (lore quiz) -----
+  guardian_ask: [
+    {s:'GUARDIAN', t:"HALT. I am the Guardian of Hawthorne Wipes Country. Answer truly and I reward the worthy."},
+    {s:'GUARDIAN', t:"Question the first: what did Cornelius Hawthorne SELL to build the entire Hawthorne fortune?"},
+    {choice:[
+      {label:'Swords and armor', go:()=>guardianAnswer(1,false)},
+      {label:'Moist towelettes', go:()=>guardianAnswer(1,true)},
+      {label:'Haunted video games', go:()=>guardianAnswer(1,false)},
+    ]},
+  ],
+  guardian_q2: [
+    {s:'GUARDIAN', t:"Correct. Hawthorne Wipes — the way of the future."},
+    {s:'GUARDIAN', t:"Question the second: this whole game was Cornelius's lesson to Pierce. What did he want Pierce to believe?"},
+    {choice:[
+      {label:'That arcades are the future', go:()=>guardianAnswer(2,false)},
+      {label:'That moist towelettes are the future', go:()=>guardianAnswer(2,true)},
+      {label:'That family does not matter', go:()=>guardianAnswer(2,false)},
+    ]},
+  ],
+  guardian_wrong: [
+    {s:'GUARDIAN', t:"Wrong. The Hawthorne way escapes you. Reflect, and ask me again."},
+  ],
+  guardian_right: [
+    {s:'GUARDIAN', t:"You know the Hawthorne way. Take this — an ABED'S SPELL SCROLL. Press E to unleash it."},
+    {s:'NARRATOR', t:"You received an Abed's Spell Scroll!"},
+  ],
+  guardian_done: [
+    {s:'GUARDIAN', t:"You have answered the Hawthorne way. Pass freely, worthy one."},
+  ],
+  // ----- ANNIE & SHIRLEY (idle, then the scene) -----
+  annie_idle: [
+    {s:'ANNIE', t:"Shirley and I are exploring the village. It's a surprisingly detailed little game!"},
+  ],
+  shirley_idle: [
+    {s:'SHIRLEY', t:"Such a charming village. I do hope everyone here stays... reasonable about things."},
+  ],
+  blacksmith_scene: [
+    {s:'NARRATOR', t:"On your way out of the village you pass the blacksmith's shop. It is boarded shut. A crooked sign reads CLOSED."},
+    {s:'ANNIE', t:"Oh! Hi. Don't mind us. We were... shopping."},
+    {s:'SHIRLEY', t:"The blacksmith and his wife were being SO unreasonable about prices."},
+    {s:'ANNIE', t:"So we handled it. We're really in character now! It's just a game, Jeff. None of it's real."},
+    {s:'JEFF', t:"...You looted the smithy and boarded it up. That blacksmith was Hilda's father."},
+    {s:'SHIRLEY', t:"They're only little 8-bit people. ...They are, aren't they?"},
+    {s:'ABED', t:"Cornelius's game rewards ruthlessness. It's pulling the worst out of everyone. Noted."},
+    {s:'NARRATOR', t:"You leave the smithy behind. Somewhere ahead, Hilda still doesn't know."},
+  ],
+  // ----- GILBERT BOSS -----
+  gilbert_pre: [
+    {s:'GILBERT', t:"Far enough. You will NOT beat me to that throne."},
+    {s:'GILBERT', t:"Thirty years I waited at Cornelius's door. I will not lose his prize to Pierce's little friends."},
+    {s:'GILBERT', t:"Draw your sword. We settle this here and now."},
+    {s:'NARRATOR', t:"GILBERT BLOCKS THE WAY — BOSS FIGHT!"},
+  ],
+  gilbert_defeated: [
+    {s:'GILBERT', t:"Enough. ENOUGH. ...I yield. I cannot beat you."},
+    {s:'GILBERT', t:"Thirty years I served Cornelius Hawthorne. Thirty years I chased a seat at his table."},
+    {s:'GILBERT', t:"And here I am — still chasing it, as a pile of angry pixels. ...I'm done. The throne can stay empty."},
+    {s:'GILBERT', t:"It's getting late out here in the real world. I should log off — somebody has to make Pierce his dinner."},
+    {s:'GILBERT', t:"...Tell him his brother said goodnight."},
+    {s:'NARRATOR', t:"Gilbert sets down the controller and quietly leaves the room. The path to the throne lies open."},
+  ],
+  // ----- PIERCE'S CHOICE (after Cornelius) -----
+  pierce_choice: [
+    {s:'PIERCE', t:"...Huh. I always thought winning this would feel like SOMETHING."},
+    {s:'PIERCE', t:"You heard Gilbert back there. Thirty years my father treated him like furniture. His own son."},
+    {s:'PIERCE', t:"And he STILL logged off early to go make me dinner. He's the only family I've got left who actually shows up."},
+    {s:'JEFF', t:"So what do we do, Pierce? It's your inheritance."},
+    {choice:[
+      {label:'Refuse it - sign it all over to Gilbert', go:()=>endGame('good')},
+      {label:'Claim the Hawthorne fortune', go:()=>endGame('bad')},
+    ]},
+  ],
+};
+
+// ============================================================================
+// AUDIO
+// ============================================================================
+let audioCtx=null, masterGain=null, muted=false, currentTrack=null, trackTimer=null;
+function initAudio(){
+  if (audioCtx){ try{audioCtx.resume();}catch(_){} return; }
+  try {
+    audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+    masterGain=audioCtx.createGain(); masterGain.gain.value=0.16;
+    masterGain.connect(audioCtx.destination);
+  } catch(_){ audioCtx=null; }
+}
+function note(f,d=0.12,t='square',v=0.5){
+  if (muted||!audioCtx) return;
+  const o=audioCtx.createOscillator(), g=audioCtx.createGain();
+  o.type=t; o.frequency.value=f;
+  g.gain.setValueAtTime(0,audioCtx.currentTime);
+  g.gain.linearRampToValueAtTime(v,audioCtx.currentTime+0.005);
+  g.gain.exponentialRampToValueAtTime(0.0001,audioCtx.currentTime+d);
+  o.connect(g); g.connect(masterGain);
+  o.start(); o.stop(audioCtx.currentTime+d+0.02);
+}
+function noise(d=0.1,v=0.3){
+  if (muted||!audioCtx) return;
+  const len=Math.floor(audioCtx.sampleRate*d);
+  const b=audioCtx.createBuffer(1,len,audioCtx.sampleRate);
+  const a=b.getChannelData(0);
+  for(let i=0;i<len;i++) a[i]=(Math.random()*2-1)*(1-i/len);
+  const s=audioCtx.createBufferSource(); s.buffer=b;
+  const g=audioCtx.createGain(); g.gain.value=v;
+  s.connect(g); g.connect(masterGain); s.start();
+}
+const NOTE={'C3':130.81,'D3':146.83,'E3':164.81,'F3':174.61,'G3':196,'A3':220,'B3':246.94,
+  'C4':261.63,'D4':293.66,'E4':329.63,'F4':349.23,'G4':392,'A4':440,'B4':493.88,
+  'C5':523.25,'D5':587.33,'E5':659.25,'F5':698.46,'G5':783.99,'A5':880,'B5':987.77,'C6':1046.5,'_':0};
+const TRACKS={
+  village:{tempo:0.17,melody:['C4','E4','G4','C5','G4','E4','G4','C5','D4','F4','A4','D5','A4','F4','A4','D5','E4','G4','B4','E5','B4','G4','E4','C4']},
+  cave:{tempo:0.22,melody:['A3','_','C4','A3','_','E3','A3','_','G3','E3','_','C4','D4','_','A3','_']},
+  road:{tempo:0.17,melody:['D4','F4','A4','D5','C5','A4','F4','D4','G4','B4','D5','G5','F5','D5','B4','G4']},
+  castle:{tempo:0.16,melody:['C4','C4','E4','G4','C5','B4','G4','E4','A4','A4','C5','E5','D5','B4','G4','E4']},
+  boss:{tempo:0.11,melody:['C3','C3','D3','E3','C3','E3','D3','C3','F3','F3','G3','A3','F3','A3','G3','F3','C4','C4','B3','A3','G3','F3','E3','D3']},
+  win:{tempo:0.20,melody:['C5','E5','G5','C6','G5','C6','E6','C6']},
+};
+function playTrack(name){
+  if (currentTrack===name) return;
+  currentTrack=name;
+  if (trackTimer){ clearInterval(trackTimer); trackTimer=null; }
+  if (!TRACKS[name]||!audioCtx) return;
+  const t=TRACKS[name]; let i=0;
+  trackTimer=setInterval(()=>{
+    if (currentTrack!==name){ clearInterval(trackTimer); trackTimer=null; return; }
+    const n=t.melody[i%t.melody.length];
+    if (n!=='_') note(NOTE[n],t.tempo*0.9,'square',0.28);
+    if (i%2===0){ const bn=t.melody[(i*2)%t.melody.length]; if(bn!=='_') note(NOTE[bn]/2,t.tempo*0.9,'triangle',0.2); }
+    i++;
+  }, t.tempo*1000);
+}
+function sfx(name){
+  if (muted||!audioCtx) return;
+  switch(name){
+    case 'jump': note(440,0.08,'square',0.3); setTimeout(()=>note(660,0.06,'square',0.3),60); break;
+    case 'land': noise(0.04,0.15); break;
+    case 'attack': note(880,0.04,'square',0.3); setTimeout(()=>note(620,0.04,'square',0.3),40); break;
+    case 'hit': noise(0.1,0.4); note(220,0.06,'sawtooth',0.3); break;
+    case 'enemy_die': note(440,0.06); setTimeout(()=>note(330,0.06),60); setTimeout(()=>note(220,0.14,'sawtooth',0.3),120); break;
+    case 'coin': note(990,0.04); setTimeout(()=>note(1320,0.08),40); break;
+    case 'item': note(660,0.06); setTimeout(()=>note(880,0.06),60); setTimeout(()=>note(1180,0.14),120); break;
+    case 'crystal': for(let i=0;i<5;i++) setTimeout(()=>note(660+i*180,0.12,'square',0.3),i*90); break;
+    case 'heal': note(523,0.08); setTimeout(()=>note(784,0.12),90); break;
+    case 'damage': noise(0.18,0.5); note(150,0.12,'sawtooth',0.4); break;
+    case 'death': note(440,0.1); setTimeout(()=>note(330,0.1),100); setTimeout(()=>note(220,0.3,'sawtooth',0.4),200); break;
+    case 'select': note(680,0.05); setTimeout(()=>note(900,0.05),45); break;
+    case 'cursor': note(760,0.04,'square',0.25); break;
+    case 'buy': note(880,0.05); setTimeout(()=>note(1100,0.05),50); setTimeout(()=>note(1320,0.1),100); break;
+    case 'nope': note(200,0.12,'sawtooth',0.3); break;
+    case 'win': for(let i=0;i<6;i++) setTimeout(()=>note([523,659,784,1046,784,1046][i],0.12),i*110); break;
+    case 'gate': noise(0.4,0.3); note(110,0.4,'sawtooth',0.3); break;
+  }
+}
+
+// ============================================================================
+// INPUT
+// ============================================================================
+const keys={}, pressed={};
+window.addEventListener('keydown', e=>{
+  if (!keys[e.key]) pressed[e.key]=true;
+  keys[e.key]=true;
+  if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' ','Enter','z','Z','x','X'].includes(e.key)) e.preventDefault();
+  if (e.key==='m'||e.key==='M'){ muted=!muted; if(masterGain) masterGain.gain.value=muted?0:0.16; }
+  initAudio();
+});
+window.addEventListener('keyup', e=>{ keys[e.key]=false; });
+window.addEventListener('blur', ()=>{ for(const k in keys) keys[k]=false; });
+window.addEventListener('mousedown', initAudio);
+function isLeft(){ return keys['ArrowLeft']||keys['a']||keys['A']; }
+function isRight(){ return keys['ArrowRight']||keys['d']||keys['D']; }
+function isJump(){ return keys[' ']||keys['ArrowUp']||keys['w']||keys['W']; }
+function jumpPressed(){ return pressed[' ']||pressed['ArrowUp']||pressed['w']||pressed['W']; }
+function attackPressed(){ return pressed['z']||pressed['Z']; }
+function actionPressed(){ return pressed[' ']||pressed['Enter']||pressed['z']||pressed['Z']; }
+function upPressed(){ return pressed['ArrowUp']||pressed['w']||pressed['W']; }
+function downPressed(){ return pressed['ArrowDown']||pressed['s']||pressed['S']; }
+function potionPressed(){ return pressed['q']||pressed['Q']; }
+function abedKeyPressed(){ return pressed['e']||pressed['E']; }
+function invPressed(){ return pressed['i']||pressed['I']; }
+function cancelPressed(){ return pressed['x']||pressed['X']||pressed['Escape']; }
+function consumePresses(){ for(const k in pressed) pressed[k]=false; }
+
+// ============================================================================
+// GAME STATE
+// ============================================================================
+const game = {
+  scene:'title',           // title|play|dialog|shop|inventory|glitch|death|ending
+  level:0,
+  player:null,
+  entities:[],
+  particles:[],
+  camX:0,
+  // inventory & progression
+  gold:0,
+  potions:0,
+  hasLantern:false,
+  hasCrystal:false,
+  hasIronSword:false,
+  hasTroy:false,
+  troySacrificed:false,
+  abedScrolls:0,
+  abedFx:0,
+  hitStop:0,
+  violence:0,
+  blacksmithClosed:false,
+  toweletteCount:0,
+  toweletteTotal:0,
+  elderDone:false,
+  guardianStage:0,         // 0 not started, 1 passed Q1, 2 done
+  quest:0,                 // story stage 0..7
+  questText:"Explore the village. Find Hilda.",
+  // combat
+  hp:6, maxhp:6, lives:3,
+  // ui
+  dialog:{active:false, queue:[], idx:0, charIdx:0, charTime:0, after:null, choosing:false, choiceIdx:0},
+  shop:{idx:0, which:'blacksmith'},
+  fade:{time:0, dir:0, after:null},
+  shake:0,
+  glitchTime:0,
+  bossState:null,
+  nearNpc:null,
+  msg:null, msgTime:0,
+  endingType:null,
+  creditY:0,
+};
+
+const SHOPS = {
+  blacksmith:{ title:"BLACKSMITH'S WARES", items:[
+    {id:'lantern',    name:'Lantern',       price:8,  desc:'See in the Black Caverns'},
+    {id:'iron_sword', name:'Iron Sword',    price:14, desc:'Stronger sword attacks'},
+    {id:'potion',     name:'Health Potion', price:5,  desc:'Heals 4 HP (press Q)'},
+  ]},
+  britta:{ title:"BRITTA'S POTION CART", items:[
+    {id:'potion',     name:'Health Potion', price:4,  desc:'Heals 4 HP (press Q)'},
+    {id:'scroll',     name:"Abed's Scroll", price:12, desc:'Summon Abed (press E)'},
+  ]},
+  merchant:{ title:"TRAVELING MERCHANT", items:[
+    {id:'potion',     name:'Health Potion', price:6,  desc:'Heals 4 HP (press Q)'},
+    {id:'scroll',     name:"Abed's Scroll", price:13, desc:'Summon Abed (press E)'},
+    {id:'iron_sword', name:'Iron Sword',    price:16, desc:'Stronger sword attacks'},
+  ]},
+};
+function shopItems(){ return SHOPS[game.shop.which].items; }
+
+// Riddle / quiz answer handlers
+function elderAnswer(correct){
+  if (correct){ game.gold+=10; game.elderDone=true; sfx('buy'); startDialog('elder_right'); }
+  else { sfx('nope'); startDialog('elder_wrong'); }
+}
+function guardianAnswer(q, correct){
+  if (!correct){ sfx('nope'); startDialog('guardian_wrong'); return; }
+  if (q===1){ game.guardianStage=1; sfx('cursor'); startDialog('guardian_q2'); }
+  else if (q===2){ game.guardianStage=2; game.abedScrolls++; sfx('crystal'); startDialog('guardian_right'); }
+}
+
+function setQuest(stage, text){
+  game.quest = Math.max(game.quest, stage);
+  if (text) game.questText = text;
+}
+function showMsg(text){ game.msg=text; game.msgTime=2.4; }
+
+// ============================================================================
+// PLAYER & PHYSICS
+// ============================================================================
+const GRAV=650, MOVE_SPEED=150, JUMP_VEL=-360, MAX_FALL=440;
+
+function makePlayer(x,y){
+  return { x,y, w:12,h:14, vx:0,vy:0, onGround:false, facing:1,
+           attackTime:0, invuln:0, walkAnim:0,
+           coyote:0, jumpBuf:0, trail:[] };
+}
+function getLevel(){ return LEVELS[game.level]; }
+function tileAt(map,tx,ty){
+  if (ty<0||ty>=map.length) return ' ';
+  const r=map[ty];
+  if (tx<0||tx>=r.length) return '#';
+  return r[tx];
+}
+function isSolid(c){ return !!SOLID[c]; }
+function isHazard(c){ return !!HAZARD[c]; }
+
+function movePlayer(p,dx,dy){
+  const map=getLevel().tiles;
+  if (dx!==0){
+    p.x+=dx;
+    const x0=Math.floor(p.x/TS), x1=Math.floor((p.x+p.w-1)/TS);
+    const y0=Math.floor(p.y/TS), y1=Math.floor((p.y+p.h-1)/TS);
+    if (dx>0){
+      for(let ty=y0;ty<=y1;ty++) if(isSolid(tileAt(map,x1,ty))){ p.x=x1*TS-p.w; p.vx=0; break; }
+    } else {
+      for(let ty=y0;ty<=y1;ty++) if(isSolid(tileAt(map,x0,ty))){ p.x=(x0+1)*TS; p.vx=0; break; }
+    }
+  }
+  if (dy!==0){
+    p.y+=dy;
+    const x0=Math.floor(p.x/TS), x1=Math.floor((p.x+p.w-1)/TS);
+    const y0=Math.floor(p.y/TS);
+    const y1=Math.floor((p.y+p.h)/TS);
+    if (dy>0){
+      for(let tx=x0;tx<=x1;tx++) if(isSolid(tileAt(map,tx,y1))){ p.y=y1*TS-p.h; p.vy=0; p.onGround=true; break; }
+    } else {
+      for(let tx=x0;tx<=x1;tx++) if(isSolid(tileAt(map,tx,y0))){ p.y=(y0+1)*TS; p.vy=0; break; }
+    }
+  }
+  // continuous ground check
+  {
+    const x0=Math.floor(p.x/TS), x1=Math.floor((p.x+p.w-1)/TS);
+    const by=Math.floor((p.y+p.h)/TS);
+    let standing=false;
+    for(let tx=x0;tx<=x1;tx++) if(isSolid(tileAt(map,tx,by))){ standing=true; break; }
+    p.onGround=standing;
+    if (standing && p.vy>=0) p.vy=0;
+  }
+  // hazard
+  const cx=Math.floor((p.x+p.w/2)/TS);
+  const cy=Math.floor((p.y+p.h-2)/TS);
+  if (isHazard(tileAt(map,cx,cy))){ if(p.invuln<=0) damagePlayer(2); }
+}
+
+function damagePlayer(amt){
+  const p=game.player;
+  if (!p||p.invuln>0) return;
+  game.hp-=amt;
+  p.invuln=1.3;
+  p.vy=-200; p.vx=-p.facing*90;
+  sfx('damage'); game.shake=8;
+  if (game.hp<=0){
+    game.hp=0; sfx('death'); game.lives--;
+    setTimeout(()=>{
+      if (game.lives>0) respawnLevel();
+      else { game.scene='death'; playTrack(null); }
+    }, 800);
+  }
+}
+function respawnLevel(){
+  game.hp=game.maxhp;
+  loadLevel(game.level);
+}
+
+function updatePlayer(dt){
+  const p=game.player;
+  if (!p) return;
+  let move=0;
+  if (isLeft()) move=-1;
+  if (isRight()) move=1;
+  if (move!==0) p.facing=move;
+  p.vx=move*MOVE_SPEED;
+
+  // coyote time + jump buffering — makes platforming feel responsive
+  if (p.onGround) p.coyote=0.10; else p.coyote=Math.max(0,p.coyote-dt);
+  if (jumpPressed()) p.jumpBuf=0.12; else p.jumpBuf=Math.max(0,p.jumpBuf-dt);
+  if (p.jumpBuf>0 && p.coyote>0){
+    p.vy=JUMP_VEL; p.onGround=false; p.coyote=0; p.jumpBuf=0; sfx('jump');
+  }
+  if (!isJump() && p.vy<-200) p.vy=-200;
+
+  // attack OR talk
+  if (attackPressed()){
+    if (game.nearNpc){
+      talkToNpc(game.nearNpc);
+      consumePresses();
+      return;
+    } else if (p.attackTime<=0){
+      p.attackTime=0.26; sfx('attack');
+    }
+  }
+  if (p.attackTime>0) p.attackTime-=dt;
+
+  // summon Abed
+  if (abedKeyPressed()){
+    if (game.abedScrolls>0){ game.abedScrolls--; abedSummon(); }
+    else showMsg("No Abed's Scrolls. Buy one from Britta or the Merchant.");
+  }
+  if (game.abedFx>0) game.abedFx-=dt;
+  // drink potion
+  if (potionPressed() && game.potions>0 && game.hp<game.maxhp){
+    game.potions--;
+    game.hp=Math.min(game.maxhp, game.hp+4);
+    sfx('heal');
+    spawnParticles(p.x+6,p.y+6,P.red,8);
+    showMsg('Drank a potion. +4 HP');
+  }
+  // open inventory
+  if (invPressed()){ game.scene='inventory'; consumePresses(); return; }
+
+  p.vy+=GRAV*dt;
+  if (p.vy>MAX_FALL) p.vy=MAX_FALL;
+  const wasGround=p.onGround;
+  movePlayer(p,p.vx*dt,0);
+  movePlayer(p,0,p.vy*dt);
+  if (!wasGround && p.onGround) sfx('land');
+
+  // a closed gate physically blocks passage until opened with the crystal
+  for (const ge of game.entities){
+    if (ge.dead) continue;
+    if (ge.type==='gate' && !ge.opened){
+      if (rectOverlap(p.x,p.y,p.w,p.h, ge.x,ge.y,ge.w,ge.h)){
+        if (p.x < ge.x) p.x = ge.x - p.w; else p.x = ge.x + ge.w;
+        p.vx = 0;
+      }
+    }
+    // rubble: a full-height wall; only Troy can break it
+    else if (ge.type==='rubble'){
+      if (rectOverlap(p.x,p.y,p.w,p.h, ge.x,ge.y,ge.w,ge.h)){
+        if (game.hasTroy && ge.crucial){
+          // the crucial wall — Troy's sacrifice
+          if (p.x < ge.x) p.x = ge.x - p.w; else p.x = ge.x + ge.w;
+          p.vx = 0;
+          if (!ge.triggered){
+            ge.triggered = true;
+            startDialog('troy_sacrifice', ()=>{
+              ge.dead = true;
+              game.hasTroy = false;
+              game.troySacrificed = true;
+              game.shake = 14;
+              for (let s=0;s<7;s++)
+                spawnParticles(ge.x+8, ge.y+24+s*24, s%2?P.stonedk:P.stone, 7);
+            });
+          }
+        } else if (game.hasTroy){
+          ge.dead=true; sfx('hit'); game.shake=8;
+          for (let s=0;s<7;s++)
+            spawnParticles(ge.x+8, ge.y+24+s*24, s%2?P.stonedk:P.stone, 6);
+          showMsg('Troy smashes through the rubble wall!');
+        } else {
+          if (p.x < ge.x) p.x = ge.x - p.w; else p.x = ge.x + ge.w;
+          p.vx = 0;
+        }
+      }
+    }
+  }
+  if (move!==0 && p.onGround) p.walkAnim+=dt*8;
+  if (p.invuln>0) p.invuln-=dt;
+
+  // record a position trail so Troy can follow a few steps behind
+  p.trail.push({x:p.x, y:p.y, facing:p.facing, moving:move!==0});
+  if (p.trail.length>20) p.trail.shift();
+
+  // fall out of world
+  if (p.y>260){
+    damagePlayer(3);
+    if (game.hp>0){
+      const sp=getLevel().entities.find(e=>e.type==='spawn');
+      if (sp){ p.x=sp.x; p.y=sp.y; p.vx=0; p.vy=0; p.invuln=1.3; }
+    }
+  }
+
+  // camera
+  const levelW=getLevel().tiles[0].length*TS;
+  game.camX=Math.max(0, Math.min(levelW-W, p.x-W/2));
+
+  // entity interactions
+  game.nearNpc=null;
+  for (const e of game.entities){
+    if (e.dead) continue;
+    // NPC proximity
+    if (e.type==='npc' || e.type==='cave_exit' || e.type==='gate' || e.type==='sign'){
+      if (rectOverlap(p.x-6,p.y-4,p.w+12,p.h+8, e.x,e.y,e.w,e.h)){
+        game.nearNpc=e;
+      }
+    }
+    if (rectOverlap(p.x,p.y,p.w,p.h, e.x,e.y,e.w,e.h)){
+      touchEntity(e);
+    }
+  }
+
+  // sword hits
+  if (p.attackTime>0){
+    const reach = game.hasIronSword?16:12;
+    const swX=p.facing>0?p.x+p.w:p.x-reach;
+    const swY=p.y-2;
+    for (const e of game.entities){
+      if (e.dead) continue;
+      if (e.enemy && rectOverlap(swX,swY,reach,p.h+4, e.x,e.y,e.w,e.h)){
+        hurtEnemy(e, game.hasIronSword?2:1, p.facing);
+      } else if (e.type==='crate' && rectOverlap(swX,swY,reach,p.h+4, e.x,e.y,e.w,e.h)){
+        smashCrate(e);
+      }
+    }
+    if (game.bossState && !game.bossState.dead){
+      const b=game.bossState;
+      if (rectOverlap(swX,swY,reach,p.h+4, b.x,b.y,(b.w||28),(b.h||24))){
+        if (b.flash<=0){
+          b.hp-=(game.hasIronSword?2:1); b.flash=0.3; sfx('hit'); game.shake=6; game.hitStop=0.07;
+          if (b.hp<=0) defeatBoss();
+        }
+      }
+    }
+  }
+}
+
+function rectOverlap(ax,ay,aw,ah,bx,by,bw,bh){
+  return ax<bx+bw && ax+aw>bx && ay<by+bh && ay+ah>by;
+}
+
+function hurtEnemy(e,dmg,dir){
+  if (e.hitFlash>0) return;
+  e.hp-=dmg; e.hitFlash=0.2; e.vx=dir*120;
+  game.hitStop=0.045;
+  if (e.hp<=0){
+    e.dead=true; sfx('enemy_die'); game.hitStop=0.07; game.violence++;
+    spawnParticles(e.x+e.w/2,e.y+e.h/2,P.lgreen,7);
+  } else sfx('hit');
+}
+function smashCrate(e){
+  e.dead=true; sfx('enemy_die'); game.hitStop=0.05; game.shake=4; game.violence++;
+  spawnParticles(e.x+8,e.y+7,P.tan,9);
+  spawnParticles(e.x+8,e.y+10,P.dbrown,6);
+  const loot=e.loot||'coin';
+  if (loot==='coins'){ game.gold+=3; sfx('coin'); showMsg('Crate smashed! +3 gold'); }
+  else if (loot==='heart'){ game.hp=Math.min(game.maxhp,game.hp+2); sfx('heal'); showMsg('A heart inside! +2 HP'); }
+  else if (loot==='scroll'){ game.abedScrolls++; sfx('item'); showMsg("Abed's Scroll inside!"); }
+  else if (loot==='empty'){ showMsg('...empty.'); }
+  else { game.gold+=1; sfx('coin'); showMsg('+1 gold'); }
+}
+
+function touchEntity(e){
+  const p=game.player;
+  if (e.type==='coin'){
+    e.dead=true; game.gold++; sfx('coin');
+    spawnParticles(e.x+8,e.y+8,P.gold,4);
+    showMsg('Gold: '+game.gold);
+  }
+  else if (e.type==='towelette'){
+    e.dead=true; game.toweletteCount++; sfx('item');
+    spawnParticles(e.x+7,e.y+7,P.lblue,7);
+    if (game.toweletteCount>=game.toweletteTotal)
+      showMsg('All Moist Towelettes collected! The way is clear.');
+    else
+      showMsg('Moist Towelette  '+game.toweletteCount+'/'+game.toweletteTotal);
+  }
+  else if (e.type==='heart_pickup'){
+    e.dead=true; game.hp=Math.min(game.maxhp,game.hp+2); sfx('heal');
+    showMsg('+2 HP');
+  }
+  else if (e.type==='potion_pickup'){
+    e.dead=true; game.potions++; sfx('item');
+    showMsg('Got a Health Potion! ('+game.potions+')');
+  }
+  else if (e.type==='crystal_pickup'){
+    if (!e.taken){
+      e.taken=true; e.dead=true; game.hasCrystal=true; sfx('crystal');
+      spawnParticles(e.x+8,e.y+8,P.crystal,16);
+      setQuest(4,"Take the crystal north to Castle Hawkthorne.");
+      startDialog('crystal_get');
+    }
+  }
+  else if (e.type==='flag'){
+    if (!e.used){
+      e.used=true; sfx('win');
+      const to=e.to;
+      setTimeout(()=>loadLevel(to), 700);
+    }
+  }
+  else if (e.type==='gilbert_flee'){
+    if (!e.fired){
+      e.fired=true; e.dead=true;
+      startDialog(e.dialog||'gilbert_flee_village');
+    }
+  }
+  else if (e.type==='chest'){
+    if (!e.opened){
+      e.opened=true; sfx('item'); sfx('crystal');
+      spawnParticles(e.x+8,e.y+5,P.gold,18);
+      const loot=e.loot||'gold';
+      if (loot==='scroll'){ game.abedScrolls+=2; showMsg("Hidden chest! 2 Abed's Scrolls"); }
+      else if (loot==='sword'){ game.hasIronSword=true; showMsg('Hidden chest! The Iron Sword!'); }
+      else { game.gold+=15; showMsg('Hidden chest! +15 gold'); }
+    }
+  }
+  else if (e.type==='scene_trigger'){
+    if (!e.fired){
+      if (e.need==='lantern' && !game.hasLantern) return;
+      e.fired=true;
+      if (e.scene==='troy_recruit') game.hasTroy=true;
+      if (e.scene==='blacksmith_scene') game.blacksmithClosed=true;
+      startDialog(e.scene);
+    }
+  }
+  else if (e.type==='boss_trigger'){
+    if (!e.fired){
+      if (game.toweletteTotal>0 && game.toweletteCount<game.toweletteTotal){
+        showMsg('Gather every Moist Towelette first!  '+game.toweletteCount+'/'+game.toweletteTotal);
+        const pl=game.player; pl.x=e.x-pl.w-8; pl.vx=0;
+        return;
+      }
+      e.fired=true;
+      startDialog('gilbert_pre', ()=>startBoss('gilbert'));
+    }
+  }
+  else if (e.enemy){
+    // stomp
+    if (p.vy>70 && p.y+p.h < e.y+e.h/2+5){
+      hurtEnemy(e,2,p.facing); p.vy=-260; sfx('enemy_die');
+    } else if (p.invuln<=0){
+      damagePlayer(1);
+    }
+  }
+}
+
+// ----- NPC / interaction -----
+function talkToNpc(e){
+  if (e.type==='sign'){ startDialog(e.dialog); return; }
+  if (e.type==='cave_exit'){
+    if (e.need==='lantern' && !game.hasLantern){
+      startDialog('cave_locked');
+      return;
+    }
+    if (e.need==='crystal' && !game.hasCrystal){
+      startDialog('need_crystal');
+      return;
+    }
+    sfx('gate');
+    const to=e.to;
+    startDialog(null, ()=>loadLevel(to));
+    setTimeout(()=>loadLevel(to), 400);
+    return;
+  }
+  if (e.type==='gate'){
+    if (game.hasCrystal){
+      if (!e.opened){
+        e.opened=true; sfx('gate');
+        setQuest(5,"Go RIGHT through the castle to the throne room.");
+        showMsg('The gate grinds open!');
+        startDialog('gate_open');
+      }
+    } else {
+      startDialog('gate_locked');
+    }
+    return;
+  }
+  if (e.type==='npc'){
+    if (e.npc==='hilda'){
+      if (game.hasCrystal){ startDialog('hilda_hascrystal'); }
+      else if (game.hasLantern){ startDialog('hilda_haslantern'); }
+      else if (game.quest>=1){ startDialog('hilda_remind'); }
+      else {
+        startDialog('hilda_intro');
+        setQuest(1,"Buy a lantern from the Blacksmith, then enter the Black Caverns.");
+      }
+    }
+    else if (e.npc==='blacksmith'){
+      const intro = game.hasCrystal ? 'blacksmith_done' : (game.hasLantern ? 'blacksmith_intro' : 'blacksmith_nolantern');
+      startDialog(intro, ()=>openShop('blacksmith'));
+    }
+    else if (e.npc==='pierce'){
+      if (!e.gave){
+        e.gave=true; game.gold+=6;
+        startDialog('pierce_intro');
+      } else startDialog('pierce_after');
+    }
+    else if (e.npc==='troy'){
+      if (!game.hasTroy){
+        game.hasTroy=true;
+        startDialog('troy_recruit');
+      } else startDialog('troy_after');
+    }
+    else if (e.npc==='elder'){
+      startDialog(game.elderDone ? 'elder_done' : 'elder_ask');
+    }
+    else if (e.npc==='britta'){
+      if (!e.met){
+        e.met=true;
+        if (game.violence===0){
+          game.abedScrolls++;
+          startDialog('britta_pacifist', ()=>openShop('britta'));
+        } else {
+          startDialog('britta_objects', ()=>openShop('britta'));
+        }
+      } else openShop('britta');
+    }
+    else if (e.npc==='merchant'){
+      startDialog('merchant_intro', ()=>openShop('merchant'));
+    }
+    else if (e.npc==='guardian'){
+      startDialog(game.guardianStage>=2 ? 'guardian_done' : 'guardian_ask');
+    }
+    else if (e.npc==='villager'){
+      startDialog('villager1');
+    }
+    else if (e.npc==='annie'){
+      startDialog('annie_idle');
+    }
+    else if (e.npc==='shirley'){
+      startDialog('shirley_idle');
+    }
+    else if (e.npc==='gilbert'){
+      startDialog(e.dialog);
+    }
+  }
+}
+function openShop(which){
+  game.shop.which=which; game.shop.idx=0; game.scene='shop';
+}
+
+// ============================================================================
+// ENEMIES & ENTITIES
+// ============================================================================
+function makeEntity(def){
+  const e={...def, dead:false, hitFlash:0};
+  if (def.type==='bat'){ e.w=14;e.h=8;e.enemy=true;e.hp=2;e.vx=0;e.vy=0;e.baseY=def.y;e.t=Math.random()*6; }
+  else if (def.type==='slime'){ e.w=12;e.h=12;e.enemy=true;e.hp=2;e.vx=30;e.vy=0;e.bt=0; }
+  else if (def.type==='goblin'){ e.w=12;e.h=14;e.enemy=true;e.hp=3;e.vx=-44;e.vy=0; }
+  else if (def.type==='knight'){ e.w=13;e.h=15;e.enemy=true;e.hp=4;e.vx=40;e.vy=0; }
+  else if (def.type==='coin'){ e.w=12;e.h=12;e.anim=Math.random()*2; }
+  else if (def.type==='heart_pickup'){ e.w=14;e.h=14; }
+  else if (def.type==='potion_pickup'){ e.w=14;e.h=14; }
+  else if (def.type==='crystal_pickup'){ e.w=14;e.h=14;e.anim=0; }
+  else if (def.type==='flag'){ e.w=14;e.h=32; }
+  else if (def.type==='sign'){ e.w=14;e.h=16; }
+  else if (def.type==='building'){ e.w=16;e.h=16; }
+  else if (def.type==='cave_exit'){ e.w=16;e.h=32; }
+  else if (def.type==='gate'){ e.w=16;e.h=176;e.opened=false; }
+  else if (def.type==='throne'){ e.w=16;e.h=24; }
+  else if (def.type==='npc'){ e.w=14;e.h=16; }
+  else if (def.type==='rubble'){ e.w=16;e.h=176; if(def.crucial&&game.troySacrificed) e.dead=true; }
+  else if (def.type==='crate'){ e.w=16;e.h=16; }
+  else if (def.type==='chest'){ e.w=16;e.h=14; }
+  else if (def.type==='towelette'){ e.w=14;e.h=14;e.anim=Math.random()*2; }
+  else if (def.type==='gilbert_flee'){ e.w=14;e.h=16;e.t=0; }
+  else if (def.type==='scene_trigger'){ e.w=24;e.h=68; }
+  else if (def.type==='boss_trigger'){ e.w=22;e.h=128; }
+  else { e.w=12;e.h=14; }
+  return e;
+}
+
+function updateEntities(dt){
+  const map=getLevel().tiles;
+  for (const e of game.entities){
+    if (e.dead) continue;
+    if (e.type==='bat'){
+      e.t+=dt;
+      const p=game.player;
+      // drift toward player slowly + bob
+      const tx=p.x, ty=p.y;
+      e.x+=Math.sign(tx-e.x)*22*dt;
+      e.y=e.baseY+Math.sin(e.t*3)*22;
+    }
+    else if (e.type==='slime'){
+      e.bt+=dt;
+      if (e.onGround && e.bt>0.7){ e.vy=-170; e.vx=(e.vx>=0?1:-1)*46; e.bt=0; }
+      e.vy+=GRAV*dt;
+      moveEnt(e,e.vx*dt,0); moveEnt(e,0,e.vy*dt);
+      edgeTurn(e,map);
+    }
+    else if (e.type==='goblin'||e.type==='knight'){
+      e.vy+=GRAV*dt;
+      moveEnt(e,e.vx*dt,0); moveEnt(e,0,e.vy*dt);
+      edgeTurn(e,map);
+    }
+    else if (e.type==='coin'||e.type==='crystal_pickup'){
+      e.anim=(e.anim||0)+dt*4;
+    }
+    if (e.hitFlash>0) e.hitFlash-=dt;
+  }
+}
+function edgeTurn(e,map){
+  if (!e.onGround) return;
+  const ahead=Math.floor((e.x+(e.vx>0?e.w+2:-2))/TS);
+  const below=Math.floor((e.y+e.h+1)/TS);
+  if (!isSolid(tileAt(map,ahead,below))) e.vx=-e.vx;
+}
+function moveEnt(e,dx,dy){
+  const map=getLevel().tiles;
+  if (dx!==0){
+    e.x+=dx;
+    const x0=Math.floor(e.x/TS),x1=Math.floor((e.x+e.w-1)/TS);
+    const y0=Math.floor(e.y/TS),y1=Math.floor((e.y+e.h-1)/TS);
+    if (dx>0){ for(let ty=y0;ty<=y1;ty++) if(isSolid(tileAt(map,x1,ty))){ e.x=x1*TS-e.w; e.vx=-Math.abs(e.vx); break; } }
+    else { for(let ty=y0;ty<=y1;ty++) if(isSolid(tileAt(map,x0,ty))){ e.x=(x0+1)*TS; e.vx=Math.abs(e.vx); break; } }
+  }
+  if (dy!==0){
+    e.y+=dy;
+    const x0=Math.floor(e.x/TS),x1=Math.floor((e.x+e.w-1)/TS);
+    const y0=Math.floor(e.y/TS),y1=Math.floor((e.y+e.h)/TS);
+    if (dy>0){ e.onGround=false; for(let tx=x0;tx<=x1;tx++) if(isSolid(tileAt(map,tx,y1))){ e.y=y1*TS-e.h; e.vy=0; e.onGround=true; break; } }
+    else { for(let tx=x0;tx<=x1;tx++) if(isSolid(tileAt(map,tx,y0))){ e.y=(y0+1)*TS; e.vy=0; break; } }
+  }
+}
+
+// ============================================================================
+// PARTICLES
+// ============================================================================
+function spawnParticles(x,y,color,n){
+  for(let i=0;i<n;i++) game.particles.push({
+    x,y, vx:(Math.random()-0.5)*130, vy:(Math.random()-0.9)*180, color, life:0.6
+  });
+}
+function updateParticles(dt){
+  for(const p of game.particles){ p.x+=p.vx*dt; p.y+=p.vy*dt; p.vy+=420*dt; p.life-=dt; }
+  game.particles=game.particles.filter(p=>p.life>0);
+}
+function drawParticles(){
+  for(const p of game.particles){
+    ctx.fillStyle=p.color;
+    const s=p.life>0.3?3:2;
+    ctx.fillRect((p.x-game.camX)|0,p.y|0,s,s);
+  }
+}
+
+// ============================================================================
+// DIALOG (supports choices)
+// ============================================================================
+function startDialog(name, after){
+  const seq = name ? DIALOG[name] : null;
+  if (!seq){ if(after) after(); if(!name) return; }
+  game.scene='dialog';
+  game.dialog={
+    active:true,
+    queue: seq ? seq.map(x=>({...x})) : [],
+    idx:0, charIdx:0, charTime:0,
+    after: after||null,
+    choosing:false, choiceIdx:0,
+  };
+  if (!seq) endDialog();
+}
+function updateDialog(dt){
+  const d=game.dialog;
+  if (!d.active) return;
+  const cur=d.queue[d.idx];
+  if (!cur){ endDialog(); return; }
+  if (cur.choice){
+    d.choosing=true;
+    if (upPressed()){ d.choiceIdx=(d.choiceIdx-1+cur.choice.length)%cur.choice.length; sfx('cursor'); }
+    if (downPressed()){ d.choiceIdx=(d.choiceIdx+1)%cur.choice.length; sfx('cursor'); }
+    if (actionPressed()){
+      sfx('select');
+      const ch=cur.choice[d.choiceIdx];
+      d.active=false; game.scene='play';
+      if (ch.go) ch.go();
+    }
+    consumePresses();
+    return;
+  }
+  d.charTime+=dt;
+  d.charIdx=Math.min(cur.t.length, Math.floor(d.charTime*38));
+  if (actionPressed()){
+    sfx('cursor');
+    if (d.charIdx<cur.t.length){ d.charIdx=cur.t.length; d.charTime=cur.t.length/38; }
+    else { d.idx++; d.charTime=0; d.charIdx=0; if(!d.queue[d.idx]) endDialog(); }
+    consumePresses();
+  }
+}
+function endDialog(){
+  const after=game.dialog.after;
+  game.dialog.active=false;
+  // default back to play, then let the callback override the scene
+  // (it may start another dialog, a shop, the boss, the credits, etc.)
+  game.scene='play';
+  if (after) after();
+}
+function drawDialog(){
+  const d=game.dialog;
+  const cur=d.queue[d.idx];
+  if (!cur) return;
+  const bx=8,by=158,bw=W-16,bh=74;
+  ctx.fillStyle='#000e'; ctx.fillRect(bx,by,bw,bh);
+  ctx.fillStyle='#fc4';
+  ctx.fillRect(bx,by,bw,1); ctx.fillRect(bx,by+bh-1,bw,1);
+  ctx.fillRect(bx,by,1,bh); ctx.fillRect(bx+bw-1,by,1,bh);
+  if (cur.choice){
+    txt('Choose:', bx+8, by+8, '#fc4');
+    for (let i=0;i<cur.choice.length;i++){
+      const sel=i===d.choiceIdx;
+      txt((sel?'> ':'  ')+cur.choice[i].label, bx+12, by+24+i*14, sel?'#fc4':'#fff');
+    }
+    return;
+  }
+  txt(cur.s, bx+8, by+7, '#fc4');
+  const lines=wrap(cur.t.substr(0,d.charIdx),38);
+  for (let i=0;i<lines.length;i++) txt(lines[i], bx+8, by+21+i*11, '#fff');
+  if (d.charIdx>=cur.t.length && (Date.now()/300|0)%2===0) txt('▼', bx+bw-13, by+bh-12, '#fc4');
+}
+function wrap(s,max){
+  const out=[];
+  for (const para of s.split('\n')){
+    let line='';
+    for (const w of para.split(' ')){
+      if ((line+' '+w).trim().length>max){ if(line) out.push(line); line=w; }
+      else line=(line+' '+w).trim();
+    }
+    if (line) out.push(line);
+  }
+  return out;
+}
+
+// ============================================================================
+// SHOP
+// ============================================================================
+function itemOwned(id){
+  return (id==='lantern'&&game.hasLantern)||(id==='iron_sword'&&game.hasIronSword);
+}
+function updateShop(){
+  const s=game.shop;
+  const items=shopItems();
+  if (upPressed()){ s.idx=(s.idx-1+items.length)%items.length; sfx('cursor'); }
+  if (downPressed()){ s.idx=(s.idx+1)%items.length; sfx('cursor'); }
+  if (actionPressed()){
+    const it=items[s.idx];
+    if (itemOwned(it.id)){
+      sfx('nope'); showMsg('Already owned.');
+    } else if (game.gold<it.price){
+      sfx('nope'); showMsg('Not enough gold.');
+    } else {
+      game.gold-=it.price; sfx('buy');
+      if (it.id==='lantern'){
+        game.hasLantern=true;
+        setQuest(2,"Enter the Black Caverns (east) and find the White Crystal.");
+        showMsg('Bought a Lantern!');
+      } else if (it.id==='iron_sword'){
+        game.hasIronSword=true; showMsg('Bought the Iron Sword!');
+      } else if (it.id==='potion'){
+        game.potions++; showMsg('Bought a Potion! ('+game.potions+')');
+      } else if (it.id==='scroll'){
+        game.abedScrolls++; showMsg("Bought Abed's Scroll! ("+game.abedScrolls+")");
+      }
+    }
+    consumePresses();
+  }
+  if (cancelPressed()){ sfx('cursor'); game.scene='play'; consumePresses(); }
+}
+function drawShop(){
+  drawPlayScene();
+  ctx.fillStyle='#000c'; ctx.fillRect(0,0,W,H);
+  const bx=44,by=40,bw=W-88,bh=H-80;
+  ctx.fillStyle='#1a1208'; ctx.fillRect(bx,by,bw,bh);
+  ctx.fillStyle='#fc4';
+  ctx.fillRect(bx,by,bw,2); ctx.fillRect(bx,by+bh-2,bw,2);
+  ctx.fillRect(bx,by,2,bh); ctx.fillRect(bx+bw-2,by,2,bh);
+  txtC(SHOPS[game.shop.which].title, by+10, '#fc4');
+  txt('Gold: '+game.gold, bx+12, by+24, '#fd4');
+  const items=shopItems();
+  for (let i=0;i<items.length;i++){
+    const it=items[i];
+    const sel=i===game.shop.idx;
+    const y=by+42+i*30;
+    if (sel){ ctx.fillStyle='#3a2e10'; ctx.fillRect(bx+8,y-4,bw-16,26); }
+    const owned=itemOwned(it.id);
+    txt((sel?'>':' ')+it.name, bx+14, y, sel?'#fc4':'#fff');
+    txt(owned?'OWNED':(it.price+'g'), bx+bw-52, y, owned?'#6c6':'#fd4');
+    txt(it.desc, bx+22, y+10, '#aaa');
+  }
+  txtC('Z buy   ↑↓ select   X leave', by+bh-14, '#888');
+}
+
+// ============================================================================
+// INVENTORY SCREEN
+// ============================================================================
+function updateInventory(){
+  if (invPressed()||cancelPressed()||actionPressed()){
+    sfx('cursor'); game.scene='play'; consumePresses();
+  }
+}
+function drawInventory(){
+  drawPlayScene();
+  ctx.fillStyle='#000d'; ctx.fillRect(0,0,W,H);
+  const bx=36,by=30,bw=W-72,bh=H-60;
+  ctx.fillStyle='#10141c'; ctx.fillRect(bx,by,bw,bh);
+  ctx.fillStyle='#7af';
+  ctx.fillRect(bx,by,bw,2); ctx.fillRect(bx,by+bh-2,bw,2);
+  ctx.fillRect(bx,by,2,bh); ctx.fillRect(bx+bw-2,by,2,bh);
+  txtC('INVENTORY', by+8, '#7af');
+
+  let y=by+26;
+  txt('Gold', bx+30, y, '#fff'); txt('x'+game.gold, bx+bw-60, y, '#fd4');
+  drawSprite(coin_a, bx+10, y-4);
+  y+=22;
+  txt('Health Potion', bx+30, y, '#fff'); txt('x'+game.potions, bx+bw-60, y, '#f88');
+  drawSprite(potion, bx+10, y-6);
+  y+=22;
+  // key items
+  const keyItems=[];
+  if (game.hasLantern) keyItems.push(['lantern','Lantern','Lights the caverns']);
+  if (game.hasCrystal) keyItems.push(['crystal','White Crystal of Discipline','Opens the castle gate']);
+  if (game.hasIronSword) keyItems.push(['iron_sword','Iron Sword','Attacks hit harder']);
+  for (const ki of keyItems){
+    drawSprite(ITEM_DEFS[ki[0]].sprite, bx+10, y-6);
+    txt(ki[1], bx+30, y, '#cef');
+    txt(ki[2], bx+30, y+9, '#888');
+    y+=24;
+  }
+  if (keyItems.length===0){ txt('(no key items yet)', bx+30, y, '#666'); y+=20; }
+
+  // objective
+  y=by+bh-44;
+  txt('CURRENT QUEST:', bx+12, y, '#fc4');
+  const ql=wrap(game.questText, 40);
+  for (let i=0;i<ql.length;i++) txt(ql[i], bx+12, y+12+i*10, '#fff');
+  txtC('press I or X to close', by+bh-12, '#888');
+}
+
+// ============================================================================
+// BOSS
+// ============================================================================
+function startBoss(kind){
+  if (kind==='gilbert'){
+    const p=game.player;
+    game.bossState={ kind:'gilbert', x:p.x+90, y:160, w:14, h:16, vx:0, vy:0, onGround:false,
+      hp:10, maxhp:10, attackCD:1.3, jumpCD:2.0, facing:-1,
+      projectiles:[], flash:0, dead:false };
+  } else {
+    game.bossState={ kind:'cornelius', x:560, y:60, w:28, h:26, vx:0,
+      hp:14, maxhp:14, attackCD:1.6, projectiles:[], flash:0, dead:false };
+  }
+  playTrack('boss');
+}
+function updateBoss(dt){
+  const b=game.bossState;
+  if (!b||b.dead) return;
+  if (b.flash>0) b.flash-=dt;
+  const p=game.player;
+
+  if (b.kind==='cornelius'){
+    // floating head — unchanged behaviour
+    b.y=58+Math.sin(performance.now()/600)*20;
+    b.x += (p.x+70 - b.x)*0.6*dt;
+    b.attackCD-=dt;
+    if (b.attackCD<=0){
+      b.attackCD=1.3-(b.maxhp-b.hp)*0.05;
+      const a0=Math.atan2((p.y+8)-(b.y+14),(p.x+8)-(b.x+14));
+      for (let i=-1;i<=1;i++){
+        const a=a0+i*0.32;
+        b.projectiles.push({x:b.x+14,y:b.y+14,vx:Math.cos(a)*130,vy:Math.sin(a)*130,life:4});
+      }
+    }
+  } else {
+    // Gilbert — grounded human duelist
+    b.vy += GRAV*dt;
+    if (b.vy>MAX_FALL) b.vy=MAX_FALL;
+    b.facing = p.x < b.x ? -1 : 1;
+    b.vx = b.facing*72;
+    b.jumpCD -= dt;
+    if (b.onGround && b.jumpCD<=0){ b.vy=-330; b.onGround=false; b.jumpCD=1.6+Math.random()*1.6; sfx('jump'); }
+    moveEnt(b, b.vx*dt, 0);
+    moveEnt(b, 0, b.vy*dt);
+    b.attackCD -= dt;
+    if (b.attackCD<=0){
+      b.attackCD=1.5;
+      const a0=Math.atan2((p.y+6)-(b.y+6),(p.x+6)-(b.x+6));
+      b.projectiles.push({x:b.x+b.w/2,y:b.y+4,vx:Math.cos(a0)*155,vy:Math.sin(a0)*155-30,life:3.2,paper:true});
+    }
+    if (rectOverlap(b.x,b.y,b.w,b.h,p.x,p.y,p.w,p.h) && p.invuln<=0) damagePlayer(1);
+  }
+
+  for (const pr of b.projectiles){
+    pr.x+=pr.vx*dt; pr.y+=pr.vy*dt; pr.life-=dt;
+    if (pr.paper) pr.vy+=180*dt;
+    if (rectOverlap(pr.x-3,pr.y-3,6,6, p.x,p.y,p.w,p.h)){ pr.life=0; damagePlayer(1); }
+  }
+  b.projectiles=b.projectiles.filter(pr=>pr.life>0);
+}
+function defeatBoss(){
+  const b=game.bossState;
+  b.dead=true; sfx('win'); game.shake=14;
+  spawnParticles(b.x+b.w/2,b.y+b.h/2,P.dred,26);
+  spawnParticles(b.x+b.w/2,b.y+b.h/2,P.yellow,18);
+  playTrack(null);
+  if (b.kind==='gilbert'){
+    setQuest(6,"Climb to the throne room and face Cornelius.");
+    setTimeout(()=>{
+      startDialog('gilbert_defeated', ()=>{ game.bossState=null; loadLevel(4); });
+    }, 800);
+  } else {
+    setQuest(7,"");
+    setTimeout(()=>{
+      startDialog('boss_down', ()=>startDialog('pierce_choice'));
+    }, 900);
+  }
+}
+function drawBoss(){
+  const b=game.bossState;
+  if (!b) return;
+  if (!b.dead){
+    const sx=(b.x-game.camX)|0, sy=b.y|0;
+    const blink=b.flash>0 && Math.floor(b.flash*15)%2===0;
+    ctx.save();
+    if (b.kind==='cornelius'){
+      ctx.translate(sx,sy); ctx.scale(1.7,1.7);
+      drawSprite(cornelius_boss,0,0,false,null,blink?0.3:1);
+    } else {
+      ctx.translate(sx-7,sy-8); ctx.scale(1.55,1.55);
+      drawSprite(gilbert,0,0,b.facing>0,null,blink?0.3:1);
+    }
+    ctx.restore();
+    const barW=110, bxx=(W-barW)/2;
+    ctx.fillStyle='#000'; ctx.fillRect(bxx-1,21,barW+2,8);
+    ctx.fillStyle='#400'; ctx.fillRect(bxx,22,barW,6);
+    ctx.fillStyle='#e22'; ctx.fillRect(bxx,22,Math.max(0,(barW*b.hp/b.maxhp))|0,6);
+    txtC(b.kind==='cornelius'?'CORNELIUS HAWTHORNE':'GILBERT LAWSON', 9, '#fc4');
+  }
+  for (const pr of b.projectiles){
+    const px=(pr.x-game.camX)|0;
+    if (pr.paper){
+      ctx.fillStyle='#eee'; ctx.fillRect(px-4,pr.y-3,8,6);
+      ctx.fillStyle='#aaa'; ctx.fillRect(px-3,pr.y-1,6,1);
+    } else {
+      ctx.fillStyle='#f72'; ctx.fillRect(px-4,pr.y-4,8,8);
+      ctx.fillStyle='#fc4'; ctx.fillRect(px-2,pr.y-2,4,4);
+    }
+  }
+}
+
+// ============================================================================
+// ABED SUMMON - the overpowered wizard finally helps
+// ============================================================================
+function abedSummon(){
+  game.abedFx=1.1;
+  sfx('crystal'); game.shake=10;
+  let killed=0;
+  for (const e of game.entities){
+    if (e.dead || !e.enemy) continue;
+    const sx=e.x-game.camX;
+    if (sx>-32 && sx<W+32){
+      e.dead=true; killed++;
+      spawnParticles(e.x+e.w/2,e.y+e.h/2,P.lblue,8);
+    }
+  }
+  if (game.bossState && !game.bossState.dead){
+    const b=game.bossState;
+    b.hp-=4; b.flash=0.5; game.shake=12;
+    spawnParticles(b.x+(b.w||20)/2,b.y+(b.h||20)/2,P.lblue,16);
+    if (b.hp<=0) defeatBoss();
+  }
+  for (let i=0;i<26;i++){
+    spawnParticles(game.camX+Math.random()*W, 36+Math.random()*150,
+      [P.lblue,P.gold,P.glitch2,P.white][i%4], 1);
+  }
+  showMsg(killed>0 ? ("Abed's spell clears the way! ("+killed+" foes)") : "Abed unleashes an overpowered spell!");
+}
+function drawAbedFx(){
+  if (game.abedFx<=0) return;
+  const a=game.abedFx;
+  ctx.fillStyle=`rgba(120,180,255,${Math.min(0.5,a*0.5)})`;
+  ctx.fillRect(0,0,W,H);
+  // Abed appears, casting
+  const sc=2+(1.1-a)*2;
+  ctx.save();
+  ctx.translate(W/2, H/2-10);
+  ctx.scale(sc,sc);
+  drawSprite(abed,-8,-8,false,null,Math.min(1,a*2));
+  ctx.restore();
+  // burst rings
+  for (let i=0;i<3;i++){
+    const r=(1.1-a)*220 + i*30;
+    ctx.strokeStyle=`rgba(180,220,255,${a*0.6})`;
+    ctx.lineWidth=2;
+    ctx.beginPath(); ctx.arc(W/2,H/2-10,r,0,Math.PI*2); ctx.stroke();
+  }
+}
+
+// ============================================================================
+// ENDING
+// ============================================================================
+function endGame(type){
+  game.endingType=type;
+  if (type==='good'){ playTrack('win'); startDialog('ending_good', ()=>{ startCredits(); }); }
+  else { startDialog('ending_bad', ()=>{ startCredits(); }); }
+}
+function startCredits(){
+  game.scene='credits';
+  game.creditY=H+10;
+  game.creditTime=0;
+  playTrack(game.endingType==='good'?'win':'road');
+}
+
+// ============================================================================
+// LEVEL LOADING
+// ============================================================================
+function loadLevel(idx){
+  game.level=idx;
+  const lvl=LEVELS[idx];
+  game.entities=lvl.entities.map(makeEntity);
+  game.toweletteTotal=game.entities.filter(e=>e.type==='towelette').length;
+  game.toweletteCount=0;
+  const sp=lvl.entities.find(e=>e.type==='spawn');
+  game.player=makePlayer(sp?sp.x:36, sp?sp.y:188);
+  game.camX=0;
+  game.particles=[];
+  game.bossState=null;
+  game.nearNpc=null;
+  game.scene='play';
+  game.fade.time=1; game.fade.dir=-1;
+  if (lvl.music) playTrack(lvl.music);
+  // per-level story triggers
+  if (idx===0 && game.quest===0){
+    setTimeout(()=>startDialog('intro'), 250);
+  }
+  if (idx===2 && !game.hasCrystal){
+    // safety: shouldn't happen, but ensure crystal flow
+  }
+  if (idx===3){
+    setQuest(5,"Open the gate and collect every Moist Towelette to proceed.");
+  }
+  if (lvl.boss){
+    setQuest(7,"Defeat Cornelius Hawthorne!");
+    setTimeout(()=>startDialog('throne_pre', ()=>startBoss('cornelius')), 400);
+  }
+}
+
+// ============================================================================
+// RENDER HELPERS
+// ============================================================================
+function txt(s,x,y,color='#fff',shadow=true){
+  ctx.font='8px monospace'; ctx.textBaseline='top';
+  if (shadow){ ctx.fillStyle='#000'; ctx.fillText(s,x+1,y+1); }
+  ctx.fillStyle=color; ctx.fillText(s,x,y);
+}
+function txtC(s,y,color='#fff'){
+  ctx.font='8px monospace';
+  const w=ctx.measureText(s).width;
+  txt(s,(W-w)/2|0,y,color);
+}
+function txtBig(s,x,y,color='#fff'){
+  ctx.font='bold 16px monospace'; ctx.textBaseline='top';
+  ctx.fillStyle='#000'; ctx.fillText(s,x+2,y+2);
+  ctx.fillStyle=color; ctx.fillText(s,x,y);
+}
+function txtBigC(s,y,color='#fff'){
+  ctx.font='bold 16px monospace';
+  const w=ctx.measureText(s).width;
+  txtBig(s,(W-w)/2|0,y,color);
+}
+
+// ============================================================================
+// DRAW WORLD
+// ============================================================================
+function skyGrad(top,bot){
+  const g=ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,top); g.addColorStop(1,bot);
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+}
+function puffCloud(x,y,s){
+  ctx.fillStyle='rgba(255,255,255,0.92)';
+  ctx.beginPath();
+  ctx.arc(x,y,5*s,0,7); ctx.arc(x+7*s,y-2*s,7*s,0,7);
+  ctx.arc(x+15*s,y,6*s,0,7); ctx.arc(x+8*s,y+3*s,6*s,0,7);
+  ctx.fill();
+}
+function wrapX(i,sp,span){ return ((i*sp - game.camX*0)%1); }
+function drawBackground(){
+  const lvl=getLevel();
+  const px=(p,sp)=>((p - game.camX*sp)%(W+span)+W+span)%(W+span)-span/2;
+  const span=320;
+  if (lvl.bg==='village'){
+    skyGrad('#4ab8e8','#c4ebf4');
+    ctx.fillStyle='rgba(255,242,186,0.85)';
+    ctx.beginPath(); ctx.arc(W-52,42,19,0,7); ctx.fill();
+    for (let i=0;i<6;i++) puffCloud(px(i*150,0.15), 32+(i%3)*22, 0.9+(i%2)*0.4);
+    ctx.fillStyle='#7bc88f';
+    for (let i=0;i<14;i++){
+      const x=px(i*120,0.25);
+      ctx.beginPath(); ctx.moveTo(x,200); ctx.quadraticCurveTo(x+60,118,x+120,200); ctx.fill();
+    }
+    ctx.fillStyle='#4a9a5e';
+    for (let i=0;i<12;i++){
+      const x=px(i*100,0.5);
+      ctx.beginPath(); ctx.moveTo(x,222); ctx.quadraticCurveTo(x+50,148,x+100,222); ctx.fill();
+    }
+  } else if (lvl.bg==='cave'){
+    skyGrad('#171110','#070405');
+    for (let i=0;i<28;i++){
+      const x=px(i*73,0.2), y=38+(i*53)%160;
+      ctx.fillStyle=i%4===0?'rgba(120,200,255,0.16)':'rgba(80,62,52,0.55)';
+      ctx.fillRect(x,y,3,3);
+    }
+  } else if (lvl.bg==='mountain'){
+    skyGrad('#8ec0e6','#e0eaf0');
+    ctx.fillStyle='rgba(255,250,210,0.85)';
+    ctx.beginPath(); ctx.arc(58,40,15,0,7); ctx.fill();
+    ctx.fillStyle='#9aa8c0';
+    for (let i=0;i<10;i++){
+      const x=px(i*150,0.2);
+      ctx.beginPath(); ctx.moveTo(x,222); ctx.lineTo(x+75,72); ctx.lineTo(x+150,222); ctx.fill();
+    }
+    for (let i=0;i<10;i++){
+      const x=px(i*130,0.45);
+      ctx.fillStyle='#5b6a86';
+      ctx.beginPath(); ctx.moveTo(x,226); ctx.lineTo(x+65,96); ctx.lineTo(x+130,226); ctx.fill();
+      ctx.fillStyle='#eef4ff';
+      ctx.beginPath(); ctx.moveTo(x+50,128); ctx.lineTo(x+65,96); ctx.lineTo(x+80,128); ctx.fill();
+    }
+  } else if (lvl.bg==='castle'){
+    skyGrad('#1c1234','#06030c');
+    ctx.fillStyle='rgba(232,232,255,0.55)';
+    ctx.beginPath(); ctx.arc(W-48,40,15,0,7); ctx.fill();
+    ctx.fillStyle='#150c24';
+    for (let i=0;i<8;i++){
+      const x=px(i*135,0.22);
+      ctx.fillRect(x,72,40,168);
+      ctx.beginPath(); ctx.moveTo(x-6,72); ctx.lineTo(x+20,42); ctx.lineTo(x+46,72); ctx.fill();
+    }
+    for (let i=0;i<22;i++){
+      const x=px(i*72,0.5), fl=Math.sin(performance.now()/120+i)*1.4;
+      ctx.fillStyle='#fd6'; ctx.fillRect(x-1,54+fl,3,5);
+      ctx.fillStyle='#f83'; ctx.fillRect(x-2,59,5,3);
+      ctx.fillStyle='#532'; ctx.fillRect(x-1,62,3,12);
+    }
+  } else if (lvl.bg==='throne'){
+    skyGrad('#2c0c1e','#0a0308');
+    for (let i=0;i<8;i++){
+      const x=px(i*70,0.35);
+      ctx.fillStyle='#43182f'; ctx.fillRect(x,34,22,206);
+      ctx.fillStyle='#5a2240'; ctx.fillRect(x,34,22,8); ctx.fillRect(x,228,22,8);
+    }
+    for (let i=0;i<16;i++){
+      const t=performance.now()/700;
+      const x=(i*60)%W, y=(H-((i*40+t*30)%H));
+      ctx.fillStyle='rgba(255,120,60,0.5)';
+      ctx.fillRect(x,y,2,2);
+    }
+  } else {
+    skyGrad('#7cf','#bdf');
+  }
+}
+function drawPostFX(){
+  // scanlines
+  ctx.fillStyle='rgba(0,0,0,0.07)';
+  for (let y=0;y<H;y+=3) ctx.fillRect(0,y,W,1);
+  // soft vignette
+  const g=ctx.createRadialGradient(W/2,H/2,H*0.42,W/2,H/2,H*0.98);
+  g.addColorStop(0,'rgba(0,0,0,0)');
+  g.addColorStop(1,'rgba(0,0,0,0.36)');
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+}
+function drawLevel(){
+  const lvl=getLevel();
+  const map=lvl.tiles;
+  const glitch=0;
+  const camTileX=Math.floor(game.camX/TS);
+  const endX=Math.min(map[0].length, camTileX+Math.ceil(W/TS)+1);
+  for (let ty=0;ty<map.length;ty++){
+    for (let tx=camTileX;tx<endX;tx++){
+      const c=map[ty][tx];
+      if (!c||c===' ') continue;
+      drawTile(c, tx*TS-game.camX, ty*TS, glitch);
+    }
+  }
+}
+const NPC_SPRITES={hilda,blacksmith,villager,villager2:villager,gilbert,
+  pierce,troy,abed,britta,merchant,annie,shirley,elder:villager,guardian:knight};
+function drawEntities(){
+  for (const e of game.entities){
+    if (e.dead) continue;
+    if (e.type==='npc' && e.npc==='blacksmith' && game.blacksmithClosed) continue;
+    const sx=(e.x-game.camX)|0;
+    if (sx<-40||sx>W+24) continue;
+    const sy=e.y|0;
+    const blink=e.hitFlash>0 && Math.floor(e.hitFlash*20)%2===0;
+    if (e.type==='bat') drawSprite(bat,sx-1,sy-4,e.vx<0,null,blink?0.3:1);
+    else if (e.type==='slime') drawSprite(slime,sx-2,sy-4,false,null,blink?0.3:1);
+    else if (e.type==='goblin') drawSprite(goblin,sx-2,sy-2,e.vx>0,null,blink?0.3:1);
+    else if (e.type==='knight') drawSprite(knight,sx-2,sy-1,e.vx>0,null,blink?0.3:1);
+    else if (e.type==='coin') drawSprite((Math.floor(e.anim)%2===0)?coin_a:coin_b,sx-2,sy-2);
+    else if (e.type==='towelette'){
+      const bob=(Math.sin(performance.now()/300+e.x*0.1)*2)|0;
+      ctx.fillStyle='rgba(150,200,255,0.18)'; ctx.fillRect(sx-3,sy-3+bob,20,20);
+      drawSprite(towelette,sx-1,sy-1+bob);
+    }
+    else if (e.type==='heart_pickup') drawSprite(heart,sx-1,sy-1);
+    else if (e.type==='potion_pickup') drawSprite(potion,sx-1,sy-1);
+    else if (e.type==='crystal_pickup'){
+      const bob=Math.sin(e.anim*2)*3;
+      // glow
+      ctx.fillStyle='rgba(180,230,255,0.25)';
+      ctx.fillRect(sx-6,sy-6+bob,26,26);
+      drawSprite(crystal,sx-1,sy-2+bob);
+    }
+    else if (e.type==='flag') drawSprite(flag,sx-1,sy-16);
+    else if (e.type==='crate') drawSprite(crate,sx,sy);
+    else if (e.type==='chest'){
+      drawSprite(chest_c,sx,sy-2);
+      if (e.opened){ ctx.fillStyle='#000a'; ctx.fillRect(sx+2,sy,12,5); }
+    }
+    else if (e.type==='gilbert_flee'){
+      e.t=(e.t||0)+0.12;
+      drawSprite(gilbert, sx-1, sy + (Math.sin(e.t)>0.4?-2:0), true);
+      if ((Date.now()/350|0)%2===0) txt('Gilbert!', sx-8, sy-12, '#fc4');
+    }
+    else if (e.type==='sign') drawSprite(sign_spr,sx-1,sy);
+    else if (e.type==='building'){
+      ctx.save(); ctx.translate(sx,sy); ctx.scale(2,2);
+      drawSprite(building,0,0);
+      ctx.restore();
+      if (e.smithy && game.blacksmithClosed){
+        ctx.fillStyle='#641';
+        ctx.fillRect(sx-3,sy+12,40,5);
+        ctx.fillRect(sx-3,sy+22,40,5);
+        ctx.save(); ctx.translate(sx+16,sy+19); ctx.rotate(0.42);
+        ctx.fillStyle='#852'; ctx.fillRect(-26,-3,52,5); ctx.restore();
+        ctx.fillStyle='#000a'; ctx.fillRect(sx+4,sy+1,26,9);
+        txt('CLOSED', sx+5, sy+2, '#fda');
+      }
+    }
+    else if (e.type==='cave_exit') drawSprite(cave_mouth,sx,sy);
+    else if (e.type==='rubble'){
+      for (let ry=0; ry<e.h; ry+=16) TILES.rubble(sx, sy+ry);
+      const pl=game.player;
+      if (pl && rectOverlap(pl.x-18,pl.y,pl.w+36,pl.h, e.x,e.y,e.w,e.h)){
+        txt(game.hasTroy?'Troy smashes through!':'A wall blocks the way', sx-22, sy+74, '#fc4');
+      }
+    }
+    else if (e.type==='gate'){
+      if (!e.opened){
+        ctx.fillStyle='#0b0b16'; ctx.fillRect(sx,sy,e.w,e.h);
+        ctx.fillStyle='#8a929e';
+        for (let bx=2; bx<e.w-1; bx+=5) ctx.fillRect(sx+bx,sy,2,e.h);
+        ctx.fillStyle='#aeb6c4';
+        for (let by=3; by<e.h; by+=15) ctx.fillRect(sx,sy+by,e.w,2);
+        ctx.fillStyle=game.hasCrystal?'#cef':'#456';
+        ctx.fillRect(sx+5,sy+e.h-46,6,7);
+        const pl=game.player;
+        if (pl && rectOverlap(pl.x-20,pl.y,pl.w+40,pl.h, e.x,e.y,e.w,e.h) && (Date.now()/350|0)%2===0){
+          txt(game.hasCrystal?'Z: raise the White Crystal':'The gate is sealed shut', sx-40, sy+e.h-64, '#fc4');
+        }
+      } else {
+        ctx.fillStyle='#0b0b16'; ctx.fillRect(sx,sy,e.w,e.h);
+        ctx.fillStyle='#8a929e';
+        for (let bx=2; bx<e.w-1; bx+=5) ctx.fillRect(sx+bx,sy,2,14);
+      }
+    }
+    else if (e.type==='throne') drawSprite(throne,sx,sy);
+    else if (e.type==='npc'){
+      const spr=NPC_SPRITES[e.npc]||villager;
+      drawSprite(spr,sx-1,sy);
+    }
+    // talk prompt
+    if (e===game.nearNpc && (e.type==='npc'||e.type==='sign'||e.type==='cave_exit'||e.type==='gate')){
+      if ((Date.now()/350|0)%2===0){
+        txt('Z', sx+e.w/2-3, sy-12, '#fc4');
+      }
+    }
+  }
+}
+function drawPlayer(){
+  const p=game.player;
+  if (!p) return;
+  // Troy follows a few steps behind, mirroring the path you took
+  if (game.hasTroy && p.trail.length>0){
+    const tp=p.trail[0];
+    drawSprite(troy, ((tp.x-game.camX)|0)-2, (tp.y|0)-2, tp.facing<0);
+  }
+  const sx=(p.x-game.camX)|0, sy=p.y|0;
+  const blink=p.invuln>0 && Math.floor(p.invuln*20)%2===0;
+  let spr=hero_idle;
+  if (p.attackTime>0) spr=hero_attack;
+  else if (!p.onGround) spr=hero_jump;
+  else if (Math.abs(p.vx)>10) spr=(Math.floor(p.walkAnim)%2===0)?hero_idle:hero_walk;
+  drawSprite(spr,sx-2,sy-2,p.facing<0,null,blink?0.3:1);
+}
+function drawDarkness(){
+  if (!getLevel().dark) return;
+  const p=game.player;
+  const px=(p.x-game.camX+p.w/2)|0, py=(p.y+p.h/2)|0;
+  const r = game.hasLantern ? 86 : 30;
+  const grd=ctx.createRadialGradient(px,py,r*0.35,px,py,r);
+  grd.addColorStop(0,'rgba(0,0,0,0)');
+  grd.addColorStop(0.7,'rgba(0,0,0,0.45)');
+  grd.addColorStop(1,'rgba(5,3,8,0.97)');
+  ctx.fillStyle=grd;
+  ctx.fillRect(0,0,W,H);
+}
+function drawHUD(){
+  ctx.fillStyle='#000'; ctx.fillRect(0,0,W,18);
+  ctx.fillStyle='#fff'; ctx.fillRect(0,18,W,1);
+  // hearts
+  for (let i=0;i<game.maxhp/2;i++){
+    const hp=game.hp-i*2;
+    let col=hp>=2?'#e22':(hp>=1?'#a44':'#400');
+    ctx.fillStyle=col; ctx.fillRect(6+i*11,5,9,8);
+    ctx.fillStyle='#fff'; ctx.fillRect(7+i*11,6,1,1);
+  }
+  // gold
+  drawSprite(coin_a, 74,1);
+  txt('x'+game.gold, 90, 5, '#fd4');
+  // potions
+  drawSprite(potion, 122,0);
+  txt('x'+game.potions, 136, 5, '#f88');
+  // abed scrolls
+  drawSprite(scroll_item, 162,1);
+  txt('x'+game.abedScrolls, 176, 5, '#7af');
+  // key items
+  let kx=204;
+  if (game.hasLantern){ drawSprite(lantern,kx,1); kx+=15; }
+  if (game.hasCrystal){ drawSprite(crystal,kx,1); kx+=15; }
+  if (game.hasIronSword){ drawSprite(sword_item,kx,1); kx+=15; }
+  if (game.hasTroy){ txt('TROY', kx,5,'#e22'); kx+=30; }
+  // lives
+  txt('Lv'+game.lives, 290, 5, '#fff');
+  // objective ticker (below HUD)
+  if (game.questText){
+    ctx.fillStyle='#000a'; ctx.fillRect(0,19,W,11);
+    txt('⚑ '+game.questText, 4, 21, '#fc4');
+  }
+  // moist towelette counter (castle level)
+  if (game.toweletteTotal>0){
+    const done=game.toweletteCount>=game.toweletteTotal;
+    const wt='WIPES '+game.toweletteCount+'/'+game.toweletteTotal;
+    ctx.fillStyle='#000c'; ctx.fillRect(W-wt.length*5-10,19,wt.length*5+10,11);
+    txt(wt, W-wt.length*5-6, 21, done?'#7f7':'#7cf');
+  }
+  // transient message
+  if (game.msg && game.msgTime>0){
+    const w=ctx.measureText(game.msg).width;
+    ctx.fillStyle='#000c'; ctx.fillRect((W-w)/2-6,H-22,w+12,13);
+    txtC(game.msg, H-20, '#fff');
+  }
+}
+
+function drawPlayScene(){
+  drawBackground();
+  drawLevel();
+  drawEntities();
+  drawPlayer();
+  drawBoss();
+  drawParticles();
+  drawDarkness();
+  drawAbedFx();
+  drawHUD();
+}
+
+// ============================================================================
+// TITLE / DEATH / ENDING
+// ============================================================================
+let titlePulse=0;
+function updateTitle(dt){
+  titlePulse+=dt;
+  if (actionPressed()){
+    sfx('select'); initAudio(); consumePresses();
+    // reset
+    game.gold=0; game.potions=0; game.hasLantern=false; game.hasCrystal=false;
+    game.hasIronSword=false; game.hasTroy=false; game.troySacrificed=false;
+    game.abedScrolls=0; game.abedFx=0; game.hitStop=0;
+    game.violence=0; game.blacksmithClosed=false;
+    game.elderDone=false; game.guardianStage=0;
+    game.quest=0; game.hp=6; game.maxhp=6; game.lives=3;
+    game.questText="Explore the village. Find Hilda.";
+    loadLevel(0);
+  }
+}
+function drawTitle(){
+  ctx.fillStyle='#04060c'; ctx.fillRect(0,0,W,H);
+  for (let y=0;y<H;y+=TS) for (let x=0;x<W;x+=TS){
+    if (((x/TS)+(y/TS))%2===0){ ctx.fillStyle='#0a0e18'; ctx.fillRect(x,y,TS,TS); }
+  }
+  ctx.fillStyle='#fc4';
+  ctx.fillRect(8,8,W-16,2); ctx.fillRect(8,H-10,W-16,2);
+  ctx.fillRect(8,8,2,H-16); ctx.fillRect(W-10,8,2,H-16);
+  txtBigC('JOURNEY TO THE', 26, '#fc4');
+  txtBigC('CENTER OF HAWKTHORNE', 46, '#fc4');
+  ctx.save(); ctx.translate(W/2-24,72); ctx.scale(3,3);
+  drawSprite(cornelius,0,0); ctx.restore();
+  txtC('A platform-adventure tribute to', 152, '#aaa');
+  txtC('Community S3E20 "Digital Estate Planning"', 164, '#888');
+  if ((Math.floor(titlePulse*2))%2===0) txtC('▶ PRESS Z OR SPACE TO BEGIN ◀', 188, '#fc4');
+  txtC('←→ move  •  SPACE jump  •  Z attack / talk', 206, '#666');
+  txtC('Q potion  •  E summon Abed  •  I inventory  •  M mute', 218, '#666');
+}
+function updateDeath(){
+  if (actionPressed()){
+    sfx('select'); consumePresses();
+    // full reset — start the whole game over from the village
+    game.gold=0; game.potions=0; game.hasLantern=false; game.hasCrystal=false;
+    game.hasIronSword=false; game.hasTroy=false; game.troySacrificed=false;
+    game.abedScrolls=0; game.abedFx=0; game.hitStop=0;
+    game.violence=0; game.blacksmithClosed=false;
+    game.elderDone=false; game.guardianStage=0;
+    game.quest=0; game.hp=6; game.maxhp=6; game.lives=3;
+    game.questText="Explore the village. Find Hilda.";
+    loadLevel(0);
+  }
+}
+function drawDeath(){
+  ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
+  txtBigC('GAME OVER',76,'#f44');
+  txtC('The Hawkthorne game has beaten you.',104,'#aaa');
+  txtC('All progress is lost.',118,'#888');
+  if ((Date.now()/400|0)%2===0) txtC('Press Z to start over from the beginning',146,'#fc4');
+}
+function drawEnding(){
+  ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
+  for (let i=0;i<46;i++){
+    ctx.fillStyle='#222';
+    ctx.fillRect((i*29)%W,(i*41+performance.now()/45)%H,1,1);
+  }
+  if (game.endingType==='good'){
+    txtBigC('THE INHERITANCE',30,'#fc4');
+    txtBigC('GIVEN AWAY',50,'#fc4');
+    drawSprite(hero_idle,84,90); drawSprite(gilbert,120,90);
+    drawSprite(hilda,156,90); drawSprite(cornelius,200,90);
+    txtC('You gave the throne to Gilbert,',132,'#fff');
+    txtC('the brother Cornelius hid away.',144,'#fff');
+    txtC('His cruel game was beaten by family.',158,'#fff');
+    txtC('"Margaritas. On me." -- Gilbert',184,'#fc4');
+  } else {
+    txtBigC('THE WORTHY HEIR',38,'#c44');
+    drawSprite(hero_idle,150,86);
+    txtC('You took the fortune for yourself.',122,'#fff');
+    txtC('Cornelius would have been proud.',136,'#aaa');
+    txtC('Gilbert walked out alone.',150,'#aaa');
+    txtC('You won. It feels like nothing.',172,'#c88');
+  }
+  txtC('-- THE END --',202,'#888');
+  if ((Date.now()/500|0)%2===0) txtC('Press Z for title',222,'#666');
+}
+function updateEnding(){ if (actionPressed()){ consumePresses(); location.reload(); } }
+
+// ============================================================================
+// CREDITS - scrolling roll
+// ============================================================================
+const CREDITS = [
+  ['big','JOURNEY TO THE'],
+  ['big','CENTER OF HAWKTHORNE'],
+  ['gap',''],
+  ['','a platform-adventure tribute to'],
+  ['gold','COMMUNITY'],
+  ['','season 3, episode 20'],
+  ['','"Digital Estate Planning"'],
+  ['gap',''],
+  ['head','- THE PARTY -'],
+  ['','JEFF      the swordsman'],
+  ['','BRITTA    the potion-brewer'],
+  ['','ABED      the overpowered wizard'],
+  ['','TROY      the strong one'],
+  ['','ANNIE     ...got into character'],
+  ['','SHIRLEY   ...also got into character'],
+  ['','PIERCE    the anxious heir'],
+  ['gap',''],
+  ['head','- AND -'],
+  ['','GILBERT LAWSON    the hidden son'],
+  ['','HILDA             the blacksmith’s daughter'],
+  ['','CORNELIUS         the late father'],
+  ['gap',''],
+  ['gold','HAWTHORNE WIPES'],
+  ['','"the way of the future"'],
+  ['gap',''],
+  ['head','- THE QUEST -'],
+  ['','You found the White Crystal,'],
+  ['','bested Gilbert and Cornelius,'],
+  ['','and chose family over a fortune.'],
+  ['gap',''],
+  ['','built as one HTML file'],
+  ['','8-bit sprites, chiptune & heart'],
+  ['gap',''],
+  ['gap',''],
+  ['big','THE END'],
+  ['gap',''],
+  ['','press Z to return to the title'],
+];
+function updateCredits(dt){
+  game.creditTime = (game.creditTime||0) + dt;
+  game.creditY -= 24*dt;
+  const totalH = CREDITS.length*16 + 120;
+  if (game.creditY < -totalH) game.creditY = -totalH;
+  // grace period: ignore input briefly so Z-mashing from the ending
+  // dialogs doesn't instantly skip the credits
+  if (game.creditTime > 3.5 && actionPressed()){ consumePresses(); location.reload(); }
+}
+function drawCredits(){
+  ctx.fillStyle='#04060c'; ctx.fillRect(0,0,W,H);
+  for (let i=0;i<50;i++){
+    ctx.fillStyle='#161a26';
+    ctx.fillRect((i*53)%W,(i*61)%H,1,1);
+  }
+  let y=game.creditY|0;
+  for (const [kind,line] of CREDITS){
+    if (y>-20 && y<H+20){
+      if (kind==='big') txtBigC(line,y,'#fc4');
+      else if (kind==='gold') txtC(line,y,'#fd4');
+      else if (kind==='head') txtC(line,y,'#7af');
+      else if (kind==='gap'){}
+      else txtC(line,y,'#fff');
+    }
+    y += (kind==='big')?22:(kind==='gap'?10:14);
+  }
+  // little party sprite parade at the bottom edge
+  const t=performance.now()/1000;
+  const paradeSprites=[hero_idle,britta,abed,troy,annie,shirley,pierce,gilbert];
+  for (let i=0;i<paradeSprites.length;i++){
+    const px=((i*40 + t*30)%(W+40))-20;
+    drawSprite(paradeSprites[i], px, H-20 + (Math.sin(t*6+i)>0.6?-2:0));
+  }
+  // skip hint, only after the grace period
+  if ((game.creditTime||0) > 3.5 && (Date.now()/450|0)%2===0){
+    ctx.fillStyle='#000b'; ctx.fillRect(0,H-12,W,12);
+    txtC('press Z to return to the title screen', H-11, '#fc4');
+  }
+}
+
+// ============================================================================
+// FADE
+// ============================================================================
+function updateFade(dt){
+  if (game.fade.dir>0){
+    game.fade.time=Math.min(1,game.fade.time+dt*2.6);
+    if (game.fade.time>=1 && game.fade.after){ const cb=game.fade.after; game.fade.after=null; cb(); }
+  } else if (game.fade.dir<0){
+    game.fade.time=Math.max(0,game.fade.time-dt*2.6);
+    if (game.fade.time<=0) game.fade.dir=0;
+  }
+}
+function drawFade(){
+  if (game.fade.time>0){ ctx.fillStyle=`rgba(0,0,0,${game.fade.time})`; ctx.fillRect(0,0,W,H); }
+}
+
+// ============================================================================
+// MAIN LOOP
+// ============================================================================
+let last=performance.now();
+function loop(now){
+  const dt=Math.min(0.05,(now-last)/1000);
+  last=now;
+
+  if (game.hitStop>0){
+    // brief freeze-frame on a solid hit, for impact
+    game.hitStop-=dt;
+  } else {
+    if (game.scene==='title') updateTitle(dt);
+    else if (game.scene==='play'){
+      updatePlayer(dt);
+      if (game.bossState) updateBoss(dt);
+      else updateEntities(dt);
+      updateParticles(dt);
+    }
+    else if (game.scene==='dialog'){ updateDialog(dt); updateParticles(dt); }
+    else if (game.scene==='shop') updateShop();
+    else if (game.scene==='inventory') updateInventory();
+    else if (game.scene==='death') updateDeath();
+    else if (game.scene==='ending') updateEnding();
+    else if (game.scene==='credits') updateCredits(dt);
+    updateFade(dt);
+    if (game.msgTime>0) game.msgTime-=dt;
+  }
+
+  ctx.save();
+  if (game.shake>0){
+    ctx.translate((Math.random()*game.shake-game.shake/2)|0,(Math.random()*game.shake-game.shake/2)|0);
+    game.shake=Math.max(0,game.shake-1);
+  }
+  if (game.scene==='title') drawTitle();
+  else if (game.scene==='play') drawPlayScene();
+  else if (game.scene==='dialog'){ drawPlayScene(); drawDialog(); }
+  else if (game.scene==='shop') drawShop();
+  else if (game.scene==='inventory') drawInventory();
+  else if (game.scene==='death') drawDeath();
+  else if (game.scene==='ending') drawEnding();
+  else if (game.scene==='credits') drawCredits();
+  ctx.restore();
+  drawFade();
+  drawPostFX();
+
+  consumePresses();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
