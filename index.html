@@ -2280,7 +2280,7 @@ const SCENES = {
   void_stop(){ if (game.voidOn){ game.voidOn=false; game.voidStopped=true; playTrack('cave'); setQuest('Leave the caverns and head for Castle Hawkthorne.'); say('void_stop'); } },
   gilbert_road(e){
     const g=spawnRunner(gilbert, e.x+40, e.y+e.h-16, 0, true); g.wait=99; g.face=-1;
-    say(F('helpedGilbert')?'gilbert_road_helped':'gilbert_road_left', ()=>{ g.wait=0; g.after=170; g.face=1; });
+    say(F('helpedGilbert')?'gilbert_road_helped':'gilbert_road_left', ()=>{ g.wait=0.15; g.after=170; g.face=1; });
   },
   gilbert_duel(e){
     if (game.boss) return;
@@ -3078,7 +3078,7 @@ function breakEntity(e){
 }
 ENT.dummy = { w:14, h:16,
   init(e){ e.breakable=true; },
-  update(e,dt){ if (e.flash>0) e.flash-=dt; if (e.wob>0) e.wob-=dt; e.hitSetClear=true; },
+  update(e,dt){ if (e.wob>0) e.wob-=dt; },
   draw(e,sx,sy){ const o=e.wob>0?Math.round(Math.sin(e.wob*40)*2):0; drawSprite(dummy,sx-1+o,sy,false,1,e.flash>0); },
 };
 ENT.checkpoint = { w:12, h:20,
@@ -4094,13 +4094,13 @@ function drawHUD(){
   const key=(spr,on,dx=0,dy=0)=>{ if (!on) return; kx-=14; drawSprite(spr,kx-2+dx,dy); };
   key(crystal,has('crystal'),0,0); key(boots_item,has('boots'),0,1); key(sword_item,has('iron_sword'),0,0); key(lantern,has('lantern'),0,0);
   if (F('troy')){ kx-=28; txt('TROY',kx,5,'#f77'); }
-  if (game.toastT>0 && game.toast && game.bannerT<=0){
+  if (game.toastT>0 && game.toast && game.bannerT<=0 && !game.dialog){
     const a=Math.min(1,game.toastT*2, (4.5-game.toastT)*4);
     const lines=wrapText(game.toast,46), h=12+lines.length*9;
     ctx.globalAlpha=a; ctx.fillStyle='#000c'; ctx.fillRect(10,18,W-20,h); ctx.fillStyle='#fc4'; ctx.fillRect(10,18,2,h);
     txt('⚑ NEW OBJECTIVE',16,20,'#fc4'); lines.forEach((l,i)=>txt(l,16,29+i*9,'#fff')); ctx.globalAlpha=1;
   }
-  if (game.bannerT>0 && game.banner){
+  if (game.bannerT>0 && game.banner && !game.dialog){
     const a=Math.min(1,game.bannerT, (3.2-game.bannerT)*3);
     ctx.globalAlpha=Math.max(0,a);
     ctx.fillStyle='#000a'; ctx.fillRect(0,86,W,34);
