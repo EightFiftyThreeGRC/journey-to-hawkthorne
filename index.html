@@ -3592,14 +3592,16 @@ function drawProjs(){
 
 // ---------------------------------------------------------------- the void (caverns escape)
 function startVoid(){
-  game.voidOn=true; game.voidStopped=false;
-  game.voidY=game.player.y+120;
+  game.voidOn=true; game.voidStopped=false; game.voidT=0;
+  game.voidY=game.player.y+210;
   playTrack('escape'); sfx('rumble'); game.shake=14;
 }
 function updateVoid(dt){
   if (!game.voidOn) return;
   const p=game.player;
-  const speed = 22 + Math.max(0,(game.voidY-(p.y+p.h))-150)*0.35;
+  game.voidT+=dt;
+  const base = Math.min(24, 8 + game.voidT*3.2);
+  const speed = base + Math.max(0,(game.voidY-(p.y+p.h))-230)*0.4;
   game.voidY-=speed*dt;
   if (Math.random()<dt*2) game.shake=Math.max(game.shake,2);
 }
@@ -3956,7 +3958,8 @@ function drawPrompt(){
 }
 function drawPlayer(){
   const p=game.player; if (!p) return;
-  if (F('troy') && p.trail.length){
+  if (F('troy')){
+    if (!p.trail.length) p.trail.push({x:p.x-p.facing*20,y:p.y,f:p.facing});
     const tp=p.trail[0], moving=Math.abs(tp.x-p.x)>18||Math.abs(tp.y-p.y)>4;
     let tx=Math.round(tp.x-game.cam.x)-3, ty=Math.round(tp.y-game.cam.y)-2;
     if (game.troyPunch>0){ tx+=p.facing*6; }
