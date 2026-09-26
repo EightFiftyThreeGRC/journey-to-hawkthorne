@@ -1219,7 +1219,7 @@ function underlay(g,x,y,tx,ty){
 }
 const PAINT = {
   dirt(g,x,y,tx,ty){
-    const top=!vsolid(tx,ty-1), wipes=paintLvl.theme==='wipes';
+    const above=pch(tx,ty-1), top=!vsolid(tx,ty-1) && above!=='H' && !TILEDEF[above]?.bg, wipes=paintLvl.theme==='wipes';
     g.fillStyle=wipes?'#8a5a30':'#7a4a24'; g.fillRect(x,y,16,16);
     speck(g,x,y,tx,ty,7,wipes?['#6a4020','#a8784a']:['#5c3418','#946038']);
     if (!vsolid(tx-1,ty)){ g.fillStyle='#4a2a12'; g.fillRect(x,y,1,16); }
@@ -2829,6 +2829,7 @@ function updatePlayer(dt){
 
   // interact beats attack when something is in reach
   let acted=false;
+  game.nearest=findNearest();
   if (pressed.attack && game.nearest && !p.attackT){ interact(game.nearest); acted=true; }
   if (game.dialog||game.menu) return;
 
@@ -3156,7 +3157,7 @@ ENT.firebar = {
 };
 
 // ---------------------------------------------------------------- interactables
-ENT.npc = { w:12, h:16,
+ENT.npc = { w:16, h:16,
   init(e){ e.spr=NPC_SPRITES[e.npc]||villager; e.phase=hash2(e.tx,e.ty)*6; },
   update(e,dt){
     e.t+=dt;
@@ -3168,13 +3169,13 @@ ENT.npc = { w:12, h:16,
   interact(e){ (TALK[e.talk||e.npc]||TALK.villager)(e); },
   draw(e,sx,sy){
     if (e.hidden) return;
-    if (e.talk==='gilbert_pinned' && !e.freed){ drawSprite(gilbert_pinned,sx-2,sy+2); return; }
+    if (e.talk==='gilbert_pinned' && !e.freed){ drawSprite(gilbert_pinned,sx,sy+2); return; }
     const breathe = Math.floor(e.t*1.5+e.phase)%2 ? 1 : 0;
     if (e.runOff){ drawSprite(gilbert,sx-2,sy+(Math.floor(e.t*10)%2?-1:0),true); return; }
-    if (e.npc==='britta') drawCart(sx+14,sy);
-    if (e.npc==='pierce'){ drawSprite(e.spr,sx-2,sy+3); drawFountainFront(sx-18,sy); return; }
-    ctx.fillStyle='rgba(0,0,0,0.25)'; ctx.fillRect(sx-1,sy+15,14,1);
-    ctx.drawImage(spriteCv(e.spr),0,0,16,16-breathe,sx-2,sy+breathe,16,16-breathe);
+    if (e.npc==='britta') drawCart(sx+16,sy);
+    if (e.npc==='pierce'){ drawSprite(e.spr,sx,sy+3); drawFountainFront(sx-16,sy); return; }
+    ctx.fillStyle='rgba(0,0,0,0.25)'; ctx.fillRect(sx+1,sy+15,14,1);
+    ctx.drawImage(spriteCv(e.spr),0,0,16,16-breathe,sx,sy+breathe,16,16-breathe);
   },
 };
 function spriteCv(spr){ if (!spr.cv) bakeSprite(spr); return spr.cv; }
@@ -3627,11 +3628,11 @@ function startBoss(kind, trig){
   const p=game.player;
   if (kind==='gilbert'){
     const ax1 = game.lock ? game.lock.x1 : p.x+160;
-    game.boss={kind, x:ax1-40, y:p.y-10, w:12, h:16, vx:0, vy:0, hp:16, maxhp:16, facing:-1,
+    game.boss={kind, x:ax1-40, y:p.y-10, w:12, h:16, vx:0, vy:0, hp:14, maxhp:14, facing:-1,
       state:'intro', t:0.6, throwT:1.6, dashT:4.5, leapT:3, flash:0, inv:0, vuln:true, onGround:false, name:'GILBERT LAWSON'};
     playTrack('duel');
   } else {
-    game.boss={kind, x:W/2-16, y:40, w:30, h:30, hp:30, maxhp:30, phase:1, state:'float', t:0, atkT:2.2, swoopT:7,
+    game.boss={kind, x:W/2-16, y:40, w:30, h:30, hp:24, maxhp:24, phase:1, state:'float', t:0, atkT:2.2, swoopT:7,
       flash:0, inv:0, vuln:true, name:'CORNELIUS HAWTHORNE', rainT:0, ft:0, eyes:0, abed:null};
     playTrack('boss');
   }
@@ -3649,8 +3650,8 @@ function hurtBoss(dmg, fromAbed=false){
   }
   if (b.hp<=0){ b.state='dying'; b.t=b.kind==='gilbert'?0.8:2.2; b.vuln=false; game.projs.length=0; playTrack(null); sfx('rumble'); return; }
   if (b.kind==='cornelius'){
-    if (b.phase===1 && b.hp<=20){ b.phase=2; game.projs.length=0; sayOnce('boss_phase2'); }
-    else if (b.phase===2 && b.hp<=10){ b.phase=3; b.vuln=false; b.shield=true; game.projs.length=0; b.state='float';
+    if (b.phase===1 && b.hp<=16){ b.phase=2; game.projs.length=0; sayOnce('boss_phase2'); }
+    else if (b.phase===2 && b.hp<=8){ b.phase=3; b.vuln=false; b.shield=true; game.projs.length=0; b.state='float';
       const cb=()=>{ b.abed={x:W/2-8,y:-30,t:0,castT:4}; b.shieldBreak=1; };
       if (F('abedArrived')) cb(); else { setF('abedArrived'); say('boss_phase3', cb); } }
   }
@@ -3841,13 +3842,13 @@ function puff(x,y,s,a=0.92){
   ctx.arc(x,y,5*s,0,7); ctx.arc(x+7*s,y-2*s,7*s,0,7); ctx.arc(x+15*s,y,6*s,0,7); ctx.arc(x+8*s,y+3*s,6*s,0,7); ctx.fill();
 }
 function hills(col, base, amp, period, f, yoff){
-  const cy=game.cam.y*f*0.5;
+  const cy=(game.cam.y-(game.L.pxH-H))*f*0.5;
   ctx.fillStyle=col; ctx.beginPath(); ctx.moveTo(0,H);
   for (let x=0;x<=W;x+=4){ const wx=x+game.cam.x*f; ctx.lineTo(x, base-cy+yoff+Math.sin(wx/period)*amp+Math.sin(wx/(period*0.37))*amp*0.35); }
   ctx.lineTo(W,H); ctx.fill();
 }
 function drawBackground(){
-  const th=game.L.theme, t=game.time, cy=game.cam.y;
+  const th=game.L.theme, t=game.time, cy=game.cam.y-(game.L.pxH-H);
   if (th==='village'){
     skyGrad('#4ab8e8','#c4ebf4');
     ctx.fillStyle='rgba(255,242,186,0.9)'; ctx.beginPath(); ctx.arc(W-56,40-cy*0.05,18,0,7); ctx.fill();
@@ -3867,11 +3868,11 @@ function drawBackground(){
     skyGrad('#f4b870','#fbe6b8');
     ctx.fillStyle='rgba(255,250,220,0.9)'; ctx.beginPath(); ctx.arc(60,50-cy*0.05,20,0,7); ctx.fill();
     for (let i=0;i<5;i++) puff(par(i*200+t*6,0.06,W+220)-110, 30+(i%2)*18-cy*0.05, 1, 0.8);
-    const my=-cy*0.1;
+    const my=-cy*0.4;
     ctx.fillStyle='#b8a4b8';
     for (let i=0;i<9;i++){ const x=par(i*150,0.12,W+300)-150; ctx.beginPath(); ctx.moveTo(x,200+my); ctx.lineTo(x+75,70+my); ctx.lineTo(x+150,200+my); ctx.fill();
       ctx.fillStyle='#fff'; ctx.beginPath(); ctx.moveTo(x+58,100+my); ctx.lineTo(x+75,70+my); ctx.lineTo(x+92,100+my); ctx.fill(); ctx.fillStyle='#b8a4b8'; }
-    const fy=-cy*0.3;
+    const fy=-cy*0.55;
     for (let i=0;i<5;i++){
       const x=par(i*260,0.3,W+260)-130;
       ctx.fillStyle='#8a6a7a'; ctx.fillRect(x,150+fy,80,90); ctx.fillRect(x+10,110+fy,12,40); ctx.fillRect(x+50,120+fy,10,30);
@@ -4383,7 +4384,8 @@ function drawTitle(){
   txtC('JOURNEY TO THE',16,'#fc4',2);
   txtC('CENTER OF HAWKTHORNE',34,'#fc4',2);
   const o=titleOpts();
-  o.forEach((it,i)=>{ const sel=i===title.idx; if (sel){ ctx.fillStyle='#000a'; ctx.fillRect(W/2-50,118+i*14,100,11); } txtC((sel?'▶ ':'')+it.label+(sel?' ◀':''), 120+i*14, sel?'#fc4':'#aaa'); });
+  ctx.fillStyle='rgba(5,6,14,0.85)'; ctx.fillRect(W/2-56,114,112,o.length*14+6);
+  o.forEach((it,i)=>{ const sel=i===title.idx; if (sel){ ctx.fillStyle='#2a2410'; ctx.fillRect(W/2-50,118+i*14,100,11); } txtC((sel?'▶ ':'')+it.label+(sel?' ◀':''), 120+i*14, sel?'#fc4':'#aaa'); });
   const found=endingsFound();
   if (found.length) txtC('Endings found: '+['walk','heir','brothers'].map(k=>found.includes(k)?'★':'•').join(' '), 160, '#c9a');
   txtC('A platform adventure tribute to Community', 206, '#777');
@@ -4539,7 +4541,7 @@ function snapCamera(){ game.cam.look=0; const t=camTarget(); game.cam.x=t.x; gam
 // ============================================================================
 function findNearest(){
   const p=game.player; if (!p||p.dead) return null;
-  const box={x:p.x-8,y:p.y-6,w:p.w+16,h:p.h+10};
+  const box={x:p.x-12,y:p.y-6,w:p.w+24,h:p.h+10};
   let best=null, bd=1e9;
   for (const e of game.ents){
     if (e.dead||!e.def.interactable||!e.def.interactable(e)||!boxOverlap(box,e)) continue;
