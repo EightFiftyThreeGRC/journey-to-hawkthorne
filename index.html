@@ -3232,7 +3232,7 @@ ENT.gate = { w:16,
   interactable(e){ return !e.open; }, prompt(){ return has('crystal')?'Raise Crystal':'Examine'; },
   interact(e){
     if (!has('crystal')){ say('gate_locked'); return; }
-    e.open=true; setF('gateOpen'); sfx('gate'); game.shake=10; spawnParts(e.x+8,e.y+e.h-40,['#cef','#fff'],14);
+    e.open=true; e.cine=true; setF('gateOpen'); sfx('gate'); game.shake=10; spawnParts(e.x+8,e.y+e.h-40,['#cef','#fff'],14);
     setQuest('Climb Castle Hawkthorne. Find moist towelettes to wipe the grime seals.');
     say('gate_open');
   },
@@ -3255,7 +3255,7 @@ ENT.seal = { w:16, h:32, persist:true,
   interactable(e){ return !e.open; }, prompt(){ return game.s.towelettes>0?'Wipe Seal':'Examine'; },
   interact(e){
     if (game.s.towelettes<=0){ say('seal_locked'); return; }
-    game.s.towelettes--; e.open=true; markTaken(e); sfx('item'); sfx('gate');
+    game.s.towelettes--; e.open=true; e.cine=true; markTaken(e); sfx('item'); sfx('gate');
     spawnParts(e.x+8,e.y+16,['#dfe','#7af','#fff','#bda'],22,120);
     if (!F('firstSeal')){ setF('firstSeal'); say('first_seal'); } else showMsg('The grime seal dissolves!');
   },
@@ -4438,8 +4438,8 @@ function drawEnding(){
   txtC(E.quote, 176, E.col);
   const found=endingsFound();
   txtC('Ending '+(found.length)+' of 3 discovered', 196, '#888');
-  if (found.length<3 && !found.includes('brothers')) txtC('Hint: Cornelius left pages behind... and Gilbert needed help.', 208, '#666');
-  if (game.endT>2 && Math.floor(game.time*2)%2===0) txtC('press Z', 226, '#fc4');
+  if (found.length<3 && !found.includes('brothers')){ txtC('Hint: find all four journal pages,', 206, '#777'); txtC('and help Gilbert when he needs it.', 215, '#777'); }
+  if (game.endT>2 && Math.floor(game.time*2)%2===0) txtC('press Z', 228, '#fc4');
 }
 const CREDITS = [
   ['big','JOURNEY TO THE'],['big','CENTER OF HAWKTHORNE'],['gap'],
@@ -4459,15 +4459,19 @@ function updateCredits(dt){
 function drawCredits(){
   ctx.fillStyle='#04060c'; ctx.fillRect(0,0,W,H); drawStars(50,0.02);
   let y=Math.round(game.creditY);
+  ctx.save(); ctx.beginPath(); ctx.rect(0,0,W,H-30); ctx.clip();
   for (const [k,l] of CREDITS){
     if (y>-20 && y<H+20){
       if (k==='big') txtC(l,y,'#fc4',2); else if (k==='gold') txtC(l,y,'#fd4'); else if (k==='head') txtC(l,y,'#7af'); else if (l) txtC(l,y,'#fff');
     }
     y+= k==='big'?22:(k==='gap'?10:12);
   }
+  ctx.restore();
+  const fade=ctx.createLinearGradient(0,H-54,0,H-30); fade.addColorStop(0,'rgba(4,6,12,0)'); fade.addColorStop(1,'rgba(4,6,12,1)');
+  ctx.fillStyle=fade; ctx.fillRect(0,H-54,W,24);
   const t=game.time, parade=[hero_idle,britta,abed,troy,annie,shirley,pierce,gilbert,hilda];
   parade.forEach((s,i)=>drawSprite(s, ((i*36+t*30)%(W+40))-20, H-20+(Math.sin(t*6+i)>0.6?-2:0)));
-  if (game.creditT>3 && Math.floor(game.time*2)%2===0){ ctx.fillStyle='#000b'; ctx.fillRect(0,H-32,W,11); txtC('press Z for the title screen',H-30,'#fc4'); }
+  if (game.creditT>3 && Math.floor(game.time*2)%2===0){ txtC('press Z for the title screen',H-40,'#fc4'); }
 }
 
 // ============================================================================
